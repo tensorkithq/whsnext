@@ -60,6 +60,9 @@ defmodule Whn.EpisodeServerTest do
     assert_receive %Broadcast{event: "vote_locked", payload: %{winner_idx: 1, tallies: [0, 2, 2]}}
     assert_receive %Broadcast{event: "vote_closed", payload: %{}}
 
+    # the broadcasts go out before the pipeline dispatch inside the same
+    # handle_info; sync on the server so the stub has recorded the call
+    _ = :sys.get_state(pid)
     assert [{:start_cycle, ctx}] = Whn.PipelineStub.calls()
     assert ctx.winning_choice == "Hide the alert"
     assert ctx.beat == 1
