@@ -8,6 +8,11 @@ defmodule Whn.EpisodeServer do
   which reports back with `{:pipeline, beat, message}` sends. Messages for
   any beat other than the current one are stale and dropped.
 
+  A vote only becomes canon with at least `min_voters` distinct voters
+  (default 2). A smaller turnout closes the poll without a winner and
+  re-offers the same choices later instead of spending on generation —
+  a lone idle tab must never keep the burner on.
+
   All `*_ms` fields in broadcast payloads are absolute epoch milliseconds.
   """
 
@@ -22,7 +27,8 @@ defmodule Whn.EpisodeServer do
     vote_open_ms: 10_000,
     vote_window_ms: 10_000,
     segment_ms: 10_000,
-    presence_check_ms: 3_000
+    presence_check_ms: 3_000,
+    revote_ms: 15_000
   }
 
   def start_link(attrs) do
@@ -65,6 +71,7 @@ defmodule Whn.EpisodeServer do
       next_choices: nil,
       opening_started: false,
       pending_cycle: nil,
+      min_voters: Map.get(attrs, :min_voters, 2),
       viewer_count_fn: Map.get(attrs, :viewer_count_fn, &default_viewer_count/0)
     }
 
@@ -161,6 +168,33 @@ defmodule Whn.EpisodeServer do
   defp handle_timeline(:vote_open, state), do: state
 
   defp handle_timeline(:vote_lock, %{vote: %{locked: false} = vote} = state) do
+    if map_size(state.votes) >= state.min_voters do
+      lock_and_start_cycle(vote, state)
+    else
+      # Not enough voters to canonize a choice: close the poll without a
+      # winner and re-offer the same options later. No generation happens.
+      broadcast("vote_closed", %{})
+      schedule(:revote, state.timings.revote_ms)
+      %{state | vote: nil, votes: %{}, next_choices: vote.options}
+    end
+  end
+
+  defp handle_timeline(:vote_lock, state), do: state
+
+  defp handle_timeline(:revote, %{vote: nil, next_choices: [_ | _]} = state) do
+    if state.viewer_count_fn.() >= 1 do
+      handle_timeline(:vote_open, state)
+    else
+      schedule(:revote, state.timings.revote_ms)
+      state
+    end
+  end
+
+  defp handle_timeline(:revote, state), do: state
+
+  defp handle_timeline(:scene_boundary, state), do: advance(state)
+
+  defp lock_and_start_cycle(vote, state) do
     tallies = tally(state.votes, length(vote.options))
 
     {_count, winner_idx} =
@@ -187,10 +221,6 @@ defmodule Whn.EpisodeServer do
       set_phase(%{state | pending_cycle: ctx}, "hold")
     end
   end
-
-  defp handle_timeline(:vote_lock, state), do: state
-
-  defp handle_timeline(:scene_boundary, state), do: advance(state)
 
   ## Pipeline messages (already beat-guarded)
 

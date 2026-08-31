@@ -86,9 +86,68 @@ defmodule Whn.EpisodeServerTest do
     assert {:error, :no_open_vote} = Whn.EpisodeServer.vote(pid, "a1", 0)
 
     open_vote(pid)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a1", 0)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a2", 1)
     send(pid, {:timeline, :vote_lock})
     _ = :sys.get_state(pid)
     assert {:error, :locked} = Whn.EpisodeServer.vote(pid, "a1", 0)
+  end
+
+  test "below quorum: poll closes without a winner and no generation starts" do
+    pid = start_episode()
+    open_vote(pid)
+    assert_receive %Broadcast{event: "vote_open"}
+
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a1", 2)
+    send(pid, {:timeline, :vote_lock})
+    _ = :sys.get_state(pid)
+
+    assert_receive %Broadcast{event: "vote_closed"}
+    refute_receive %Broadcast{event: "vote_locked"}
+    assert Whn.PipelineStub.calls() == []
+
+    state = :sys.get_state(pid)
+    assert state.vote == nil
+    assert state.beat == 0
+    assert state.next_choices == ["Confront the boss", "Hide the alert", "Call Mama"]
+  end
+
+  test "revote re-opens the same options with a fresh deadline; quorum then generates" do
+    pid = start_episode()
+    open_vote(pid)
+    assert_receive %Broadcast{event: "vote_open"}
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a1", 1)
+    send(pid, {:timeline, :vote_lock})
+    _ = :sys.get_state(pid)
+    assert_receive %Broadcast{event: "vote_closed"}
+
+    send(pid, {:timeline, :revote})
+    _ = :sys.get_state(pid)
+    assert_receive %Broadcast{event: "vote_open", payload: reopened}
+    assert reopened.options == ["Confront the boss", "Hide the alert", "Call Mama"]
+    assert reopened.tallies == [0, 0, 0]
+    assert_in_delta reopened.deadline_ms, System.system_time(:millisecond) + 10_000, 1_000
+
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "b1", 0)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "b2", 0)
+    send(pid, {:timeline, :vote_lock})
+    assert_receive %Broadcast{event: "vote_locked", payload: %{winner_idx: 0}}
+    _ = :sys.get_state(pid)
+    assert [{:start_cycle, ctx}] = Whn.PipelineStub.calls()
+    assert ctx.winning_choice == "Confront the boss"
+  end
+
+  test "revote with zero viewers reschedules instead of opening" do
+    pid = start_episode(%{viewer_count_fn: fn -> 0 end})
+    open_vote(pid)
+    assert_receive %Broadcast{event: "vote_open"}
+    send(pid, {:timeline, :vote_lock})
+    _ = :sys.get_state(pid)
+    assert_receive %Broadcast{event: "vote_closed"}
+
+    send(pid, {:timeline, :revote})
+    _ = :sys.get_state(pid)
+    refute_receive %Broadcast{event: "vote_open"}
   end
 
   # EP-06
@@ -125,8 +184,8 @@ defmodule Whn.EpisodeServerTest do
     assert_in_delta started_at, System.system_time(:millisecond), 1_000
   end
 
-  # EP-08
-  test "zero presence: pipeline is never invoked and the episode holds" do
+  # EP-08 (quorum guard subsumes the old zero-presence hold at lock)
+  test "zero presence: pipeline is never invoked" do
     pid = start_episode(%{viewer_count_fn: fn -> 0 end})
 
     send(pid, {:timeline, :presence_check})
@@ -138,8 +197,33 @@ defmodule Whn.EpisodeServerTest do
     _ = :sys.get_state(pid)
 
     assert Whn.PipelineStub.calls() == []
+    refute_receive %Broadcast{event: "vote_locked"}
+    assert :sys.get_state(pid).vote == nil
+  end
+
+  test "quorum met but zero viewers at lock: cycle is deferred until presence returns" do
+    {:ok, viewers} = Agent.start_link(fn -> 1 end)
+    pid = start_episode(%{viewer_count_fn: fn -> Agent.get(viewers, & &1) end})
+
+    send(pid, {:timeline, :presence_check})
+    _ = :sys.get_state(pid)
+    assert [{:start_opening, _}] = Whn.PipelineStub.calls()
+
+    open_vote(pid)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a1", 1)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a2", 1)
+
+    Agent.update(viewers, fn _ -> 0 end)
+    send(pid, {:timeline, :vote_lock})
+    _ = :sys.get_state(pid)
+    assert [{:start_opening, _}] = Whn.PipelineStub.calls()
     assert :sys.get_state(pid).phase == "hold"
-    assert_receive %Broadcast{event: "phase", payload: %{phase: "hold"}}
+
+    Agent.update(viewers, fn _ -> 2 end)
+    send(pid, {:timeline, :presence_check})
+    _ = :sys.get_state(pid)
+    assert [{:start_opening, _}, {:start_cycle, ctx}] = Whn.PipelineStub.calls()
+    assert ctx.winning_choice == "Hide the alert"
   end
 
   # EP-09

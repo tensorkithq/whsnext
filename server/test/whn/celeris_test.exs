@@ -151,6 +151,7 @@ defmodule Whn.CelerisTest do
     assert system =~ "FINAL FRAME HYGIENE"
     assert system =~ "readable"
     assert system =~ "wordless"
+    assert system =~ "in English"
     assert system =~ "no spoken dialogue"
     assert system =~ "Return ONLY compact JSON, no markdown fences, exactly this shape:"
   end
