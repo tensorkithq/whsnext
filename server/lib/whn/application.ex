@@ -12,6 +12,10 @@ defmodule Whn.Application do
       Whn.Repo,
       {DNSCluster, query: Application.get_env(:whn, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Whn.PubSub},
+      WhnWeb.Presence,
+      {Registry, keys: :unique, name: Whn.EpisodeRegistry},
+      {DynamicSupervisor, name: Whn.EpisodeSupervisor, strategy: :one_for_one},
+      {Task.Supervisor, name: Whn.TaskSupervisor},
       # Start a worker by calling: Whn.Worker.start_link(arg)
       # {Whn.Worker, arg},
       # Start to serve requests, typically the last entry
