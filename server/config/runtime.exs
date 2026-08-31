@@ -20,7 +20,7 @@ if System.get_env("PHX_SERVER") do
   config :whn, WhnWeb.Endpoint, server: true
 end
 
-config :whn, WhnWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+config :whn, WhnWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "57400"))]
 
 if config_env() == :prod do
   database_url =

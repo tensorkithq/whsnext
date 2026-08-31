@@ -9,6 +9,7 @@ config :whn, Whn.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
+  port: 57432,
   database: "whn_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
