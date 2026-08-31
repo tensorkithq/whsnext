@@ -46,6 +46,11 @@
               export PGDATA="$PWD/.nix-postgres"
               export PGHOST="127.0.0.1"
               export PGUSER="postgres"
+
+              export PORT=57400
+              if [ -f "$PWD/.env" ]; then
+                set -a; . "$PWD/.env"; set +a
+              fi
             '';
           };
         });
