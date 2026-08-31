@@ -1,17 +1,13 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import { fileURLToPath } from "node:url";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import viteReact from "@vitejs/plugin-react";
 
 // Phoenix dev server; keep in sync with server/config/dev.exs.
 const SERVER = "http://127.0.0.1:57400";
 
 export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-    },
-  },
+  resolve: { tsconfigPaths: true },
+  plugins: [tanstackStart({ spa: { enabled: true } }), viteReact()],
   server: {
     host: true,
     proxy: {
