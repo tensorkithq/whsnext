@@ -2,7 +2,7 @@
 project: whn
 created: 2026-08-31
 last_activity: 2026-08-31
-active_sprint:
+active_sprint: 2026-08-31-live-episode-mvp
 ---
 
 # State
@@ -15,6 +15,7 @@ Project-wide state for the `jira` workflow. The orchestrator commands keep this 
 
 | Slug | Status | Goal | Outcome |
 |------|--------|------|---------|
+| 2026-08-31-live-episode-mvp | researching | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | — |
 
 Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `blocked`, `abandoned`.
 
