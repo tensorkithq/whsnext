@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Stage } from "../components/stage";
 import { useEpisode } from "../lib/useEpisode";
 
 export const Route = createFileRoute("/")({ component: EpisodePage });
@@ -9,7 +10,13 @@ function EpisodePage() {
 
   return (
     <div className="episode">
-      {!episode.connected && <div className="connecting">Tuning in…</div>}
+      <Stage
+        phase={episode.phase}
+        playback={episode.playback}
+        preload={episode.preload}
+        skewMs={episode.skewMs}
+      />
+      {!episode.connected ? <div className="connecting">Tuning in…</div> : null}
     </div>
   );
 }
