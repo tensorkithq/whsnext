@@ -24,6 +24,16 @@
           pg-stop = pkgs.writeShellScriptBin "pg-stop" ''
             pg_ctl stop
           '';
+
+          logs = pkgs.writeShellScriptBin "logs" ''
+            mkdir -p "$PWD/.nix-logs"
+            files=$(ls "$PWD/.nix-logs"/*.log "$PGDATA/postgres.log" 2>/dev/null)
+            if [ -z "$files" ]; then
+              echo "no logs yet — pg-start writes $PGDATA/postgres.log; the whn-live tmux session pipes Phoenix into .nix-logs/phoenix.log"
+              exit 1
+            fi
+            exec tail -n 100 -F $files
+          '';
         in
         {
           default = pkgs.mkShell {
@@ -34,6 +44,7 @@
               postgresql_17
               pg-start
               pg-stop
+              logs
             ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.inotify-tools ];
 
             shellHook = ''

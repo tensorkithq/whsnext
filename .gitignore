@@ -1,6 +1,7 @@
 .nix-mix/
 .nix-hex/
 .nix-postgres/
+.nix-logs/
 .env
 .env.local
 node_modules/
