@@ -1,1 +1,6 @@
-tmp
+.nix-mix/
+.nix-hex/
+.nix-postgres/
+.env
+.env.local
+node_modules/
