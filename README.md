@@ -434,3 +434,24 @@ V1 succeeds technically when audience can watch one uninterrupted episode where:
 **video → vote → canonical decision → generated continuation**
 
 repeats reliably without viewer experiencing generation as an explicit loading state.
+
+---
+
+## Development
+
+Everything runs inside the Nix devshell (Elixir, Node, ffmpeg, Postgres).
+
+```sh
+nix develop            # enter the devshell
+pg-start               # Postgres on 127.0.0.1:57432 (data in .nix-postgres/)
+cp .env.example .env   # then fill in FAL_KEY (gitignored, auto-sourced by the shell)
+(cd server && mix setup)         # deps, create DB, migrate, seed
+(cd server && mix phx.server)    # API on 127.0.0.1:57400
+(cd web && npm install && npm run dev)   # UI on the Vite port, proxies /socket and /api to 57400
+```
+
+Notes:
+
+- Postgres listens on 57432, not 5432; the port is pinned in the server config, so no env vars needed.
+- `mix test` talks to the same Postgres — keep `pg-start` running.
+- `pg-stop` shuts Postgres down when you're done.
