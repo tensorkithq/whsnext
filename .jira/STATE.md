@@ -15,7 +15,7 @@ Project-wide state for the `jira` workflow. The orchestrator commands keep this 
 
 | Slug | Status | Goal | Outcome |
 |------|--------|------|---------|
-| 2026-08-31-live-episode-mvp | executing | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | — |
+| 2026-08-31-live-episode-mvp | done | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | PASS (8/8 outcomes, 33/33 predicates, 37 tests) — [PR #6](https://github.com/tensorkithq/whn/pull/6) |
 
 Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `blocked`, `abandoned`.
 
@@ -45,6 +45,8 @@ Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `bloc
 ## Blockers
 
 <!-- Active blockers across all sprints. Resolved blockers move to the Decisions log. -->
+
+None active. Two verifier follow-ups carried on PR #6 (not blockers): cross-beat frame chaining is prompt-only in production (last_frame_url never carried forward → bridges take the t2v branch); winner-reveal styling unreachable (vote_closed broadcast immediately after vote_locked).
 
 ## Notes
 
