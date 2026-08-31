@@ -455,3 +455,20 @@ Notes:
 - Postgres listens on 57432, not 5432; the port is pinned in the server config, so no env vars needed.
 - `mix test` talks to the same Postgres — keep `pg-start` running.
 - `pg-stop` shuts Postgres down when you're done.
+
+### Start the live episode
+
+With Postgres up and both `FAL_KEY` and `CELERIS_KEY` filled in `.env`, boot an
+interactive server and start the seed episode (Lagos Wahala — "Salary Just Entered"):
+
+```sh
+(cd server && iex -S mix phx.server)
+```
+
+```elixir
+Whn.Episodes.start!(Whn.Seed.salary_just_entered())
+```
+
+Generation waits until at least one viewer has the web client open, then calls
+fal for real: each 30-second scene cycle costs about $2.00 at post-promo
+pricing. Stop the server when you're done watching.

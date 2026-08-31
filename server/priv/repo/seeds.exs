@@ -1,11 +1,14 @@
-# Script for populating the database. You can run it as:
+# Seeds the Lagos Wahala launch episode:
 #
 #     mix run priv/repo/seeds.exs
 #
-# Inside the script, you can read and write to any of your
-# repositories directly:
-#
-#     Whn.Repo.insert!(%Whn.SomeSchema{})
-#
-# We recommend using the bang functions (`insert!`, `update!`
-# and so on) as they will fail if something goes wrong.
+# Idempotent: re-running skips the insert when an episode with the same
+# title already exists.
+
+import Ecto.Query
+
+attrs = Whn.Seed.salary_just_entered()
+
+unless Whn.Repo.exists?(from e in Whn.Schemas.Episode, where: e.title == ^attrs.title) do
+  {:ok, _episode} = Whn.Store.create_episode(attrs)
+end
