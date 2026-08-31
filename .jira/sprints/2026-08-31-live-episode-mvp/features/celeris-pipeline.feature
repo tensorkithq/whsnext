@@ -3,13 +3,13 @@ Feature: Winner-only generation pipeline with a disciplined script engine
 
   @req:CEL-01 @plan:VI @wave:3
   Scenario: Celeris parses the README §5 contract
-    Given a stubbed vision reply containing valid contract JSON
+    Given a stubbed script-engine reply containing valid contract JSON
     When Whn.Celeris.run/1 executes
     Then it returns scene_summary, winning_choice, bridge, next_scene, next_choices, and story_state_updates
 
   @req:CEL-02 @plan:VI @wave:3
   Scenario: Malformed LLM output never stalls the episode
-    Given a vision reply wrapped in markdown fences and a second reply of pure garbage
+    Given a script-engine reply wrapped in markdown fences and a second reply of pure garbage
     When Whn.Celeris.run/1 executes against each
     Then the fenced reply parses via brace-slice extraction and the garbage reply yields the canned fallback without raising
 

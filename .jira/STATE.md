@@ -15,7 +15,7 @@ Project-wide state for the `jira` workflow. The orchestrator commands keep this 
 
 | Slug | Status | Goal | Outcome |
 |------|--------|------|---------|
-| 2026-08-31-live-episode-mvp | planned | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | — |
+| 2026-08-31-live-episode-mvp | executing | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | — |
 
 Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `blocked`, `abandoned`.
 
@@ -29,7 +29,7 @@ Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `bloc
 - D-02 tie-break: lowest option index among tied leaders
 - D-03 vote_update: immediate per-vote broadcast, no batching
 - D-04 topic: client `episode:live` → `Whn.Episodes.current/0`
-- D-05 Celeris: fal `openrouter/router/vision`, `google/gemini-2.5-flash-lite`, latest frame always attached
+- D-05 Celeris (revised 2026-08-31): real Celeris API — OpenAI-compatible chat completions, `celeris-1`, Bearer CELERIS_KEY from .env; text-only, fal vision route demoted to fallback
 - D-06 frames: local ffmpeg (`-sseof -0.25`) + FalEx.Storage.upload; hosted extract-frame documented only
 - D-07 hold: first-class phase; freeze last frame + shimmer
 - D-08 web phoenix npm → 1.8.13
