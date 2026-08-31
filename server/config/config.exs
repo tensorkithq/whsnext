@@ -31,9 +31,11 @@ config :logger, :default_formatter,
 config :phoenix, :json_library, Jason
 
 # fal_ex builds Tesla clients without naming an adapter; pin the hackney
-# adapter it ships with instead of Tesla's :httpc fallback. Tesla is only
-# used by fal_ex — see Whn.Fal.FalExImpl.
-config :tesla, adapter: Tesla.Adapter.Hackney
+# adapter it ships with instead of Tesla's :httpc fallback. recv_timeout
+# matches fal_ex's 300s request timeout — hackney's 5s default kills
+# generation calls mid-flight. Tesla is only used by fal_ex — see
+# Whn.Fal.FalExImpl.
+config :tesla, adapter: {Tesla.Adapter.Hackney, recv_timeout: 300_000}
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
