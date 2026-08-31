@@ -45,6 +45,7 @@ defmodule Whn.EpisodeServer do
 
     state = %{
       id: Map.fetch!(attrs, :id),
+      episode_id: Map.get(attrs, :episode_id),
       title: Map.fetch!(attrs, :title),
       premise: Map.fetch!(attrs, :premise),
       seed: Map.get(attrs, :seed, Enum.random(0..2_147_483_646)),
@@ -54,6 +55,8 @@ defmodule Whn.EpisodeServer do
       pending_segments: [],
       vote: nil,
       votes: %{},
+      current_decision_id: nil,
+      scene_urls: [],
       timings: timings,
       story_state: Map.get(attrs, :story_state, %{}),
       history: [],
@@ -88,7 +91,11 @@ defmodule Whn.EpisodeServer do
         votes = Map.put_new(state.votes, anon_id, option_idx)
         accepted? = map_size(votes) > map_size(state.votes)
         tallies = tally(votes, length(state.vote.options))
-        if accepted?, do: broadcast("vote_update", %{tallies: tallies})
+
+        if accepted? do
+          broadcast("vote_update", %{tallies: tallies})
+          persist_vote(state, anon_id, option_idx)
+        end
 
         state = %{state | votes: votes, vote: %{state.vote | tallies: tallies}}
         {:reply, {:ok, %{tallies: tallies, your_vote: Map.fetch!(votes, anon_id)}}, state}
@@ -145,9 +152,10 @@ defmodule Whn.EpisodeServer do
       your_vote: nil
     }
 
+    decision_id = persist_decision(state, vote)
     broadcast("vote_open", vote)
     schedule(:vote_lock, state.timings.vote_window_ms)
-    %{state | vote: vote, votes: %{}, next_choices: nil}
+    %{state | vote: vote, votes: %{}, next_choices: nil, current_decision_id: decision_id}
   end
 
   defp handle_timeline(:vote_open, state), do: state
@@ -160,11 +168,13 @@ defmodule Whn.EpisodeServer do
 
     broadcast("vote_locked", %{winner_idx: winner_idx, tallies: tallies})
     broadcast("vote_closed", %{})
+    persist_finalize(state, tallies, winner_idx)
 
     state = %{
       state
       | vote: %{vote | locked: true, winner_idx: winner_idx, tallies: tallies},
-        beat: state.beat + 1
+        beat: state.beat + 1,
+        scene_urls: []
     }
 
     ctx = pipeline_ctx(state, Enum.at(vote.options, winner_idx))
@@ -191,6 +201,11 @@ defmodule Whn.EpisodeServer do
         _ -> state.history
       end
 
+    story_state =
+      Map.merge(state.story_state, Map.get(result, :story_state_updates) || %{})
+
+    persist_story_state(state, story_state)
+
     %{
       state
       | next_choices: Map.get(result, :next_choices),
@@ -198,17 +213,20 @@ defmodule Whn.EpisodeServer do
           bridge: get_in(result, [:bridge, :duration]),
           next_scene: get_in(result, [:next_scene, :duration])
         },
-        story_state: Map.merge(state.story_state, Map.get(result, :story_state_updates) || %{}),
+        story_state: story_state,
         history: history
     }
   end
 
   defp handle_pipeline({:bridge_ready, url}, state) do
+    persist_beat(state, "bridge", [url])
     entry = %{kind: "bridge", beat: state.beat, segments: [url]}
     %{state | pending_segments: state.pending_segments ++ [entry]}
   end
 
   defp handle_pipeline({:segment_ready, _idx, url}, state) do
+    state = %{state | scene_urls: state.scene_urls ++ [url]}
+    persist_beat(state, "scene", state.scene_urls)
     state = append_segment(state, url)
     broadcast("preload", %{urls: pending_urls(state)})
     maybe_promote(state)
@@ -281,6 +299,81 @@ defmodule Whn.EpisodeServer do
 
   defp sync_vote(state, anon_id) do
     %{state.vote | your_vote: Map.get(state.votes, anon_id)}
+  end
+
+  ## Persistence
+  #
+  # Opening and finalizing a decision are synchronous boundary writes; every
+  # other write is fire-and-forget so the episode mailbox never waits on the
+  # database. An episode without a database row (started directly in tests)
+  # skips persistence entirely.
+
+  defp persist_decision(%{episode_id: nil}, _vote), do: nil
+
+  defp persist_decision(state, vote) do
+    {:ok, decision} =
+      Whn.Store.record_decision(state.episode_id, %{
+        beat_idx: state.beat,
+        question: vote.question,
+        options: vote.options,
+        tallies: vote.tallies,
+        deadline_ms: vote.deadline_ms
+      })
+
+    decision.id
+  end
+
+  defp persist_finalize(%{current_decision_id: nil}, _tallies, _winner_idx), do: :ok
+
+  defp persist_finalize(state, tallies, winner_idx) do
+    {:ok, _} = Whn.Store.finalize_decision(state.current_decision_id, tallies, winner_idx)
+    :ok
+  end
+
+  defp persist_vote(%{current_decision_id: nil}, _anon_id, _option_idx), do: :ok
+
+  defp persist_vote(state, anon_id, option_idx) do
+    decision_id = state.current_decision_id
+
+    {:ok, _} =
+      Task.Supervisor.start_child(Whn.TaskSupervisor, fn ->
+        Whn.Store.record_vote(decision_id, anon_id, option_idx)
+      end)
+
+    :ok
+  end
+
+  defp persist_story_state(%{episode_id: nil}, _story_state), do: :ok
+
+  defp persist_story_state(state, story_state) do
+    episode_id = state.episode_id
+
+    {:ok, _} =
+      Task.Supervisor.start_child(Whn.TaskSupervisor, fn ->
+        Whn.Store.update_story_state(episode_id, story_state)
+      end)
+
+    :ok
+  end
+
+  defp persist_beat(%{episode_id: nil}, _kind, _segments), do: :ok
+
+  defp persist_beat(state, kind, segments) do
+    episode_id = state.episode_id
+
+    attrs = %{
+      idx: state.beat,
+      kind: kind,
+      segments: segments,
+      meta: %{"seed" => state.seed + state.beat}
+    }
+
+    {:ok, _} =
+      Task.Supervisor.start_child(Whn.TaskSupervisor, fn ->
+        Whn.Store.upsert_beat(episode_id, attrs)
+      end)
+
+    :ok
   end
 
   ## Helpers

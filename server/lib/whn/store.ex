@@ -35,6 +35,14 @@ defmodule Whn.Store do
     |> Repo.insert()
   end
 
+  @doc "Writes the locked outcome onto an open decision row."
+  def finalize_decision(decision_id, tallies, winner_idx) do
+    Decision
+    |> Repo.get!(decision_id)
+    |> Ecto.Changeset.change(tallies: tallies, winner_idx: winner_idx)
+    |> Repo.update()
+  end
+
   @doc """
   First write wins: the unique index on `(decision_id, anon_id)` plus
   `on_conflict: :nothing` makes a repeat vote a no-op at the database

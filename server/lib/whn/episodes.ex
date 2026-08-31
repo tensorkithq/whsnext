@@ -4,8 +4,14 @@ defmodule Whn.Episodes do
   time; the channel resolves the `episode:live` topic through `current/0`.
   """
 
-  @doc "Starts an episode server under the episode supervisor. Raises on failure."
+  @doc """
+  Creates the episode row, then starts an episode server carrying its id —
+  the database row is the durable identity. Raises on failure.
+  """
   def start!(attrs) do
+    {:ok, episode} = Whn.Store.create_episode(attrs)
+    attrs = attrs |> Map.put(:id, episode.id) |> Map.put(:episode_id, episode.id)
+
     case DynamicSupervisor.start_child(Whn.EpisodeSupervisor, {Whn.EpisodeServer, attrs}) do
       {:ok, pid} -> pid
       {:error, reason} -> raise "could not start episode: #{inspect(reason)}"
