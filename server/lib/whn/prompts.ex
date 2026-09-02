@@ -7,7 +7,7 @@ defmodule Whn.Prompts do
   continuity); the user prompt renders the episode's explicit story state.
   """
 
-  @vertical_suffix "Vertical 9:16 vibrant 2D cartoon animation: bold clean outlines, flat saturated colors, warm Lagos palette, expressive exaggerated characters, smooth motion; any incidental signage in English; any spoken words are clear English from a single on-screen speaker."
+  @vertical_suffix "Vertical 9:16 vibrant 2D cartoon animation: bold clean outlines, flat saturated colors, warm Lagos palette, expressive exaggerated characters, smooth motion; any incidental signage in English; any spoken words are clear English from a single on-screen speaker who falls silent after one line — all other mouths stay closed, no chatter, no murmuring."
 
   @system_prompt """
   You are the SCRIPT ENGINE of a live interactive 2D-animated Nigerian-life cartoon comedy streamed one scene at a time. Each scene ends in an audience vote; the winning choice is the only story truth. You are given the episode premise, the canonical story state, the story so far, and the choice the audience just locked. Write the bridge out of the vote, the next 30-second scene, and the next vote.
@@ -22,7 +22,7 @@ defmodule Whn.Prompts do
   - next_scene: a 30-second scene with the rhythm setup, new problem, escalation, decision. It ends at the moment the audience must choose.
   - Each video_prompt: one or two shot-prompt sentences. Open by grounding the protagonist's current visible state, then the action developing across the shot. Stay in the show's 2D cartoon world — never ask for photorealism or live action. Never mention cameras as equipment, UI, votes, or the show itself.
   - FINAL FRAME HYGIENE: every video_prompt must end on a readable, well-lit, stable frame — no close-ups, motion blur, or blackouts on the final beat — the last frame seeds the next shot.
-  - Sound: ambient environmental audio and cinematic score, with expressive but wordless vocal reactions — laughs, gasps, exclamations, grunts — layered over them. DIALOGUE: scene clips only — at most ONE character speaks per scene clip, one short English line, at most 12 words (about five seconds of speech), written into the video_prompt as quoted dialogue, e.g. Tunde says: "Not today, sir, please." The line lands MID-SHOT: action establishes first, never speech in the opening seconds, and the line finishes before the final beat. Every other voice stays wordless-expressive; never two speakers in one clip; a clip with nothing worth saying carries reactions only. The bridge is ALWAYS dialogue-free — wordless reactions only.
+  - Sound: ambient environmental audio and cinematic score, with expressive but wordless vocal reactions — laughs, gasps, exclamations, grunts — layered over them. DIALOGUE: scene clips only — at most ONE character speaks per scene clip, one short English line, at most 12 words (about five seconds of speech), written into the video_prompt as quoted dialogue, e.g. Tunde says: "Not today, sir, please." The line lands MID-SHOT: action establishes first, never speech in the opening seconds, and the line finishes before the final beat. After the line the speaker falls silent — state the post-line silence explicitly in the video_prompt (e.g. then he says nothing more, turning away). Every other voice stays wordless-expressive; never two speakers in one clip; a clip with nothing worth saying carries reactions only. The bridge is ALWAYS dialogue-free — wordless reactions only.
   - LANGUAGE: write every JSON string — summaries, scripts, video prompts, choices — in English. Local flavor comes through places, names, and action, not through switching language; never request on-screen text, captions, or subtitles.
   - next_choices: exactly 3 things the protagonist could do next. Each must be immediately understandable without explanation, socially debatable (different viewers genuinely prefer different options), and consequential for future scenes, relationships, resources, or problems. Never an obviously correct option, never an obviously stupid one, no cosmetic choices, no choices whose consequences evaporate.
   - CONTINUITY: scenes are not isolated comedy. Maintain escalating stakes, callbacks to earlier events, unresolved problems, character memory, consequences, and resource depletion or gain. Early choices should be capable of resurfacing later. Rejected options never become story truth.
@@ -53,7 +53,11 @@ defmodule Whn.Prompts do
         head = binary_part(prompt, 0, start)
         quoted = binary_part(prompt, start, len)
         rest = binary_part(prompt, start + len, byte_size(prompt) - start - len)
-        squeeze(head <> requote(quoted) <> strip_dialogue(rest))
+        # The silence marker is mechanical, not requested: the video model
+        # keeps improvising speech past the scripted line without it.
+        squeeze(
+          head <> requote(quoted) <> " The speaker then falls silent." <> strip_dialogue(rest)
+        )
     end
   end
 

@@ -191,9 +191,60 @@ defmodule Whn.CelerisTest do
     [only_quote] = Regex.scan(~r/"[^"]+"/, scene) |> List.flatten()
     assert length(String.split(String.trim(only_quote, "\""))) == 12
     refute scene =~ "extra line"
+    assert scene =~ "The speaker then falls silent."
 
     refute result.bridge.video_prompt =~ "\""
     refute result.bridge.video_prompt =~ "never survive"
+  end
+
+  test "SCRIPT_ENGINE=gemini routes through the fal vision route with the same prompts" do
+    defmodule VisionStub do
+      @behaviour Whn.Fal
+      def t2v(_p, _o), do: {:error, :unused}
+      def i2v(_p, _i, _o), do: {:error, :unused}
+      def flux(_p, _o), do: {:error, :unused}
+      def upload(_p), do: {:error, :unused}
+
+      def vision(prompt, opts) do
+        send(self(), {:vision_called, prompt, opts})
+
+        valid = %{
+          "scene_summary" => "Gemini wrote this beat.",
+          "winning_choice" => "Pay the landlord half",
+          "bridge" => %{"duration" => 10, "script" => "s", "video_prompt" => "He walks out."},
+          "next_scene" => %{
+            "duration" => 30,
+            "script" => "s",
+            "video_prompt" => "The argument continues."
+          },
+          "next_choices" => ["A real option", "Another option", "A third option"],
+          "story_state_updates" => %{}
+        }
+
+        {:ok, %{output: Jason.encode!(valid)}}
+      end
+    end
+
+    previous = Application.get_env(:whn, :fal_impl)
+    Application.put_env(:whn, :fal_impl, VisionStub)
+    System.put_env("SCRIPT_ENGINE", "gemini")
+
+    on_exit(fn ->
+      System.delete_env("SCRIPT_ENGINE")
+
+      if previous,
+        do: Application.put_env(:whn, :fal_impl, previous),
+        else: Application.delete_env(:whn, :fal_impl)
+    end)
+
+    assert {:ok, result} = Celeris.run(@ctx)
+    assert result.scene_summary == "Gemini wrote this beat."
+
+    assert_receive {:vision_called, prompt, opts}
+    assert prompt =~ "Salary Just Entered"
+    assert opts[:model] == "google/gemini-2.5-flash-lite"
+    assert opts[:system_prompt] =~ "FINAL FRAME HYGIENE"
+    assert opts[:max_tokens] == 700
   end
 
   test "user prompt renders state and choice, or the opening instruction when choice is nil" do
