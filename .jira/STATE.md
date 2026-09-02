@@ -15,7 +15,7 @@ Project-wide state for the `jira` workflow. The orchestrator commands keep this 
 
 | Slug | Status | Goal | Outcome |
 |------|--------|------|---------|
-| 2026-09-02-frame-chained-continuity | researching | Scene-end frame seeds the bridge, bridge-end seeds the next scene; winner reveal delay; EP-08 hygiene | — |
+| 2026-09-02-frame-chained-continuity | planned | Scene-end frame seeds the bridge, bridge-end seeds the next scene; winner reveal delay; EP-08 hygiene | — |
 | 2026-08-31-live-episode-mvp | done | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | PASS (8/8 outcomes, 33/33 predicates, 37 tests) — [PR #6](https://github.com/tensorkithq/whn/pull/6) |
 
 Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `blocked`, `abandoned`.
@@ -42,6 +42,13 @@ Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `bloc
 - D-14 timing: 3×10s segments; vote +10s, lock +20s; timings test-injectable, transitions via send_after self-messages
 - D-15 failures: one retry per fal stage (same seed); Celeris retry once then canned fallback; votes never reopen
 - D-16 secrets: FAL_KEY in gitignored .env, flake shellHook sources it; .env.example committed
+
+2026-09-02, sprint 2026-09-02-frame-chained-continuity (full text in its CONTEXT.md):
+
+- Frame chaining: pipeline extracts the FINAL segment's frame (best-effort, -sseof -1 overhang retry) and emits one new pinned message {:last_frame, url}; server stores it latest-wins via a beat-guard-exempt head; ctx refreshed at pending_cycle dispatch; trailing extraction failure never holds the episode (t2v fallback as before)
+- Winner reveal: vote_closed scheduled reveal_ms (2_500 default, timings-injectable) after vote_locked, guarded on locked: true; below-quorum close stays immediate
+- EP-08 superseded by REV-03 in this sprint's features/ (comment-only annotation on the old scenario; tags/text untouched)
+- Deferred: end_image_url keyframe bridges, monotonic frame check, beat-meta frame persistence
 
 ## Blockers
 
