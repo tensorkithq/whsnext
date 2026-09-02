@@ -115,6 +115,13 @@ defmodule Whn.EpisodeServer do
   @impl true
   def handle_info({:timeline, event}, state), do: {:noreply, handle_timeline(event, state)}
 
+  # Scene-end frames are latest ground truth, not per-beat artifacts: the
+  # trailing extraction can straddle the lock's beat bump, so this head is
+  # exempt from the stale-beat guard below. Latest write wins.
+  def handle_info({:pipeline, _beat, {:last_frame, url}}, state) do
+    {:noreply, %{state | last_frame_url: url}}
+  end
+
   def handle_info({:pipeline, beat, message}, %{beat: beat} = state) do
     {:noreply, handle_pipeline(message, state)}
   end
@@ -136,7 +143,9 @@ defmodule Whn.EpisodeServer do
 
       state.pending_cycle != nil ->
         if state.viewer_count_fn.() >= 1 do
-          dispatch(:start_cycle, state.pending_cycle)
+          # The ctx snapshot was taken at lock; a frame extracted during the
+          # hold would otherwise be silently unused. Refresh at dispatch.
+          dispatch(:start_cycle, %{state.pending_cycle | last_frame_url: state.last_frame_url})
           %{state | pending_cycle: nil}
         else
           schedule(:presence_check, state.timings.presence_check_ms)

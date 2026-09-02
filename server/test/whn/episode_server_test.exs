@@ -226,6 +226,59 @@ defmodule Whn.EpisodeServerTest do
     assert ctx.winning_choice == "Hide the alert"
   end
 
+  # FC-02
+  test "stored scene-end frame rides into the next cycle's ctx" do
+    pid = start_episode()
+    send(pid, {:pipeline, 0, {:last_frame, "mock://scene-end.jpg"}})
+    open_vote(pid)
+
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a1", 1)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a2", 1)
+    send(pid, {:timeline, :vote_lock})
+    _ = :sys.get_state(pid)
+
+    assert [{:start_cycle, ctx}] = Whn.PipelineStub.calls()
+    assert ctx.last_frame_url == "mock://scene-end.jpg"
+  end
+
+  # FC-03
+  test "frame intake is exempt from the stale-beat guard: any beat tag is stored" do
+    pid = start_episode()
+    assert :sys.get_state(pid).beat == 0
+
+    send(pid, {:pipeline, 41, {:last_frame, "mock://stale-tag.jpg"}})
+    assert :sys.get_state(pid).last_frame_url == "mock://stale-tag.jpg"
+  end
+
+  # FC-05
+  test "frame arriving during a zero-viewer hold refreshes the parked cycle at dispatch" do
+    {:ok, viewers} = Agent.start_link(fn -> 1 end)
+    pid = start_episode(%{viewer_count_fn: fn -> Agent.get(viewers, & &1) end})
+
+    send(pid, {:timeline, :presence_check})
+    _ = :sys.get_state(pid)
+    assert [{:start_opening, _}] = Whn.PipelineStub.calls()
+
+    open_vote(pid)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a1", 1)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a2", 1)
+
+    Agent.update(viewers, fn _ -> 0 end)
+    send(pid, {:timeline, :vote_lock})
+    _ = :sys.get_state(pid)
+    assert :sys.get_state(pid).phase == "hold"
+
+    send(pid, {:pipeline, 1, {:last_frame, "mock://held.jpg"}})
+
+    Agent.update(viewers, fn _ -> 2 end)
+    send(pid, {:timeline, :presence_check})
+    _ = :sys.get_state(pid)
+
+    assert [{:start_opening, _}, {:start_cycle, ctx}] = Whn.PipelineStub.calls()
+    assert ctx.last_frame_url == "mock://held.jpg"
+    assert ctx.winning_choice == "Hide the alert"
+  end
+
   # EP-09
   test "viewers present: start_opening dispatched exactly once with nil winning_choice and last_frame_url" do
     pid = start_episode(%{viewer_count_fn: fn -> 3 end})
