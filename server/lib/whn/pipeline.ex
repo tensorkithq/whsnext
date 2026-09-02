@@ -88,7 +88,9 @@ defmodule Whn.Pipeline do
   end
 
   defp opening_prompt(ctx) do
-    "Opening frame: #{ctx.episode.premise} #{Whn.Prompts.vertical_suffix()}"
+    "Opening frame: #{ctx.episode.premise} " <>
+      "Escalation: #{Whn.Prompts.escalation_fragment(ctx.absurdity_level)} " <>
+      Whn.Prompts.vertical_suffix()
   end
 
   defp bridge_clip(%{last_frame_url: nil}, prompt, seed) do

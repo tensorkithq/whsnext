@@ -14,7 +14,8 @@ defmodule Whn.CelerisTest do
     story_state: %{"money" => 180_000},
     winning_choice: "Pay the landlord half",
     last_frame_url: "https://example.com/frame.jpg",
-    history: ["Salary landed and the phone immediately lit up."]
+    history: ["Salary landed and the phone immediately lit up."],
+    absurdity_level: 2
   }
 
   @valid %{
@@ -152,7 +153,8 @@ defmodule Whn.CelerisTest do
     assert system =~ "readable"
     assert system =~ "ONE character speaks"
     assert system =~ "English line"
-    assert system =~ "MID-SHOT"
+    assert system =~ "Camera:"
+    assert system =~ "Dialogue (the only spoken words in the clip):"
     assert system =~ "bridge is ALWAYS dialogue-free"
     assert system =~ "wordless"
     assert system =~ "in English"
@@ -191,10 +193,23 @@ defmodule Whn.CelerisTest do
     [only_quote] = Regex.scan(~r/"[^"]+"/, scene) |> List.flatten()
     assert length(String.split(String.trim(only_quote, "\""))) == 12
     refute scene =~ "extra line"
-    assert scene =~ "The speaker then falls silent."
+    # the inline line gets moved under the mechanical guard label
+    assert scene =~ ~s{Dialogue (the only spoken words in the clip): Tunde says: "}
 
     refute result.bridge.video_prompt =~ "\""
     refute result.bridge.video_prompt =~ "never survive"
+    refute result.bridge.video_prompt =~ "Dialogue (the only spoken words in the clip):"
+  end
+
+  test "an authored Dialogue block keeps its label and never gains a second one" do
+    authored =
+      "Camera: medium shot.\nEnvironment: doorway.\nAction: Tunde plants his feet.\n" <>
+        ~s{Dialogue (the only spoken words in the clip): Tunde: "Not today, sir."}
+
+    clamped = Prompts.clamp_dialogue(authored)
+
+    assert [_] = Regex.scan(~r/Dialogue \(the only spoken words in the clip\):/, clamped)
+    assert clamped =~ ~s(Tunde: "Not today, sir.")
   end
 
   test "SCRIPT_ENGINE=gemini routes through the fal vision route with the same prompts" do
@@ -255,5 +270,108 @@ defmodule Whn.CelerisTest do
 
     opening = Prompts.user_prompt(%{@ctx | winning_choice: nil})
     assert opening =~ "OPENING — establish the premise and first decision"
+  end
+
+  # EL-04
+  test "user prompt carries the level's labeled ESCALATION line" do
+    assert Prompts.user_prompt(@ctx) =~ "ESCALATION (L2): " <> Prompts.escalation_fragment(2)
+  end
+
+  # EL-05
+  test "finalize appends the escalation line to both video prompts, before the suffix" do
+    respond_with(Jason.encode!(@valid))
+
+    assert {:ok, result} = Celeris.run(@ctx)
+    escalation = "\nEscalation: " <> Prompts.escalation_fragment(2)
+
+    for vp <- [result.bridge.video_prompt, result.next_scene.video_prompt] do
+      assert vp =~ escalation
+      # exactly one Escalation line per prompt — the append must never stack
+      assert length(String.split(vp, "\nEscalation: ")) == 2
+      assert String.ends_with?(vp, Prompts.vertical_suffix())
+    end
+  end
+
+  # EL-05
+  test "the escalation line survives dialogue clamping intact, newline and all" do
+    raw =
+      put_in(
+        @valid,
+        ["next_scene", "video_prompt"],
+        ~s(Tunde pleads. Tunde says: "Please, just one more week." The landlord waits.)
+      )
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    assert result.next_scene.video_prompt =~
+             "\nEscalation: " <> Prompts.escalation_fragment(2)
+  end
+
+  # EL-06
+  test "the canned fallback beat's video prompts carry the escalation line" do
+    respond_with("no json here, sorry")
+
+    assert {:ok, :fallback, result} = Celeris.run(@ctx)
+    escalation = "\nEscalation: " <> Prompts.escalation_fragment(2)
+
+    assert result.bridge.video_prompt =~ escalation
+    assert result.next_scene.video_prompt =~ escalation
+  end
+
+  # EL-07
+  test "levels above the ladder top clamp to L5, label included" do
+    assert Prompts.escalation_fragment(9) == Prompts.escalation_fragment(5)
+    assert Prompts.user_prompt(%{@ctx | absurdity_level: 9}) =~ "ESCALATION (L5):"
+  end
+
+  # EL-08
+  test "system prompt makes escalation server-owned and options escalation-form" do
+    system = Prompts.system_prompt()
+
+    assert system =~ "ESCALATION"
+    assert system =~ "never whether the story escalates"
+    assert system =~ "three forms of the same next beat"
+    assert system =~ "no duplicates"
+  end
+
+  # EL-09
+  test "duplicate options are deduped and backfilled without reintroducing one" do
+    raw =
+      put_in(@valid["next_choices"], [
+        "Stir with the paddle",
+        "Stir with the paddle",
+        "Climb in and stomp"
+      ])
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    assert length(result.next_choices) == 3
+    assert result.next_choices == Enum.uniq(result.next_choices)
+    assert "Stir with the paddle" in result.next_choices
+    assert "Climb in and stomp" in result.next_choices
+    assert "Face the problem head-on" in result.next_choices
+  end
+
+  # EL-09
+  test "backfill skips a fallback choice the model already echoed" do
+    raw =
+      put_in(@valid["next_choices"], [
+        "Face the problem head-on",
+        "Face the problem head-on",
+        "Climb in and stomp"
+      ])
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    # the echoed fallback string is kept once; the backfill must reach past
+    # it instead of reintroducing it as a duplicate
+    assert result.next_choices == [
+             "Face the problem head-on",
+             "Climb in and stomp",
+             "Stall and buy time"
+           ]
   end
 end
