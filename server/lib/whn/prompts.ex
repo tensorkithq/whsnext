@@ -7,7 +7,11 @@ defmodule Whn.Prompts do
   continuity); the user prompt renders the episode's explicit story state.
   """
 
-  @vertical_suffix "Vertical 9:16 vibrant 2D cartoon animation: bold clean outlines, flat saturated colors, warm Lagos palette, expressive exaggerated characters, smooth motion; any incidental signage in English; all voices are wordless — no spoken dialogue, no chatter, mouths busy with expression not words."
+  # Audio clause chosen empirically: under a speech-tempting scenario, blunt
+  # stacked negatives suppressed H3 Max babble better than the previous
+  # "all voices are wordless" phrasing and better than every alternative
+  # tested across two seeds. Evidence: WORDLESS-ADHERENCE.md at the repo root.
+  @vertical_suffix "Vertical 9:16 vibrant 2D cartoon animation: bold clean outlines, flat saturated colors, warm Lagos palette, expressive exaggerated characters, smooth motion; any incidental signage in English. No dialogue, no speech, no talking, no voices, silent characters."
 
   @system_prompt """
   You are the SCRIPT ENGINE of a live interactive 2D-animated Nigerian-life cartoon comedy streamed one scene at a time. Each scene ends in an audience vote; the winning choice is the only story truth. You are given the episode premise, the canonical story state, the story so far, and the choice the audience just locked. Write the bridge out of the vote, the next 30-second scene, and the next vote.
