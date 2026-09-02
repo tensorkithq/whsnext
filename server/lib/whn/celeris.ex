@@ -36,12 +36,12 @@ defmodule Whn.Celeris do
   def run(ctx) do
     case attempt(ctx) do
       {:ok, result} ->
-        {:ok, finalize(result)}
+        {:ok, finalize(result, ctx.absurdity_level)}
 
       :error ->
         case attempt(ctx) do
-          {:ok, result} -> {:ok, finalize(result)}
-          :error -> {:ok, :fallback, finalize(fallback(ctx))}
+          {:ok, result} -> {:ok, finalize(result, ctx.absurdity_level)}
+          :error -> {:ok, :fallback, finalize(fallback(ctx), ctx.absurdity_level)}
         end
     end
   end
@@ -197,9 +197,12 @@ defmodule Whn.Celeris do
       raw
       |> Enum.map(&str(&1, 120))
       |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
       |> Enum.take(3)
 
-    kept ++ Enum.take(@fallback_choices, 3 - length(kept))
+    # Backfill skips anything already kept, so a model echoing a fallback
+    # string can't reintroduce a duplicate.
+    kept ++ Enum.take(@fallback_choices -- kept, 3 - length(kept))
   end
 
   defp choices(_raw), do: @fallback_choices
@@ -235,11 +238,23 @@ defmodule Whn.Celeris do
     }
   end
 
-  defp finalize(result) do
+  # The escalation line is appended after dialogue handling (its single
+  # newline must survive the whitespace squeeze) and before the style
+  # suffix, which stays the terminal line of every video prompt.
+  defp finalize(result, level) do
     result
-    |> update_in([:bridge, :video_prompt], &(&1 |> Prompts.strip_dialogue() |> suffix()))
-    |> update_in([:next_scene, :video_prompt], &(&1 |> Prompts.clamp_dialogue() |> suffix()))
+    |> update_in(
+      [:bridge, :video_prompt],
+      &(&1 |> Prompts.strip_dialogue() |> escalation(level) |> suffix())
+    )
+    |> update_in(
+      [:next_scene, :video_prompt],
+      &(&1 |> Prompts.clamp_dialogue() |> escalation(level) |> suffix())
+    )
   end
+
+  defp escalation(video_prompt, level),
+    do: video_prompt <> "\nEscalation: " <> Prompts.escalation_fragment(level)
 
   defp suffix(video_prompt), do: video_prompt <> "\nStyle: " <> Prompts.vertical_suffix()
 end
