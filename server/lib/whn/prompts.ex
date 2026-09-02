@@ -35,6 +35,48 @@ defmodule Whn.Prompts do
   @doc "Style string appended to every outgoing video_prompt."
   def vertical_suffix, do: @vertical_suffix
 
+  # ~5 seconds of speech. Enforced mechanically, not just requested:
+  # the model's output is untrusted like every other field.
+  @max_dialogue_words 12
+  @quoted ~r/"[^"]+"/
+
+  @doc """
+  Keeps only the first quoted dialogue line, truncated to the word cap;
+  any further quoted spans are removed. Used on scene video_prompts.
+  """
+  def clamp_dialogue(prompt) do
+    case Regex.run(@quoted, prompt, return: :index) do
+      nil ->
+        prompt
+
+      [{start, len}] ->
+        head = binary_part(prompt, 0, start)
+        quoted = binary_part(prompt, start, len)
+        rest = binary_part(prompt, start + len, byte_size(prompt) - start - len)
+        squeeze(head <> requote(quoted) <> strip_dialogue(rest))
+    end
+  end
+
+  @doc """
+  Removes every quoted dialogue span. Used on bridge video_prompts (always
+  dialogue-free) and on scene segments after the first, so the one allowed
+  line is spoken once per scene, not once per segment.
+  """
+  def strip_dialogue(prompt), do: prompt |> String.replace(@quoted, "") |> squeeze()
+
+  defp requote(quoted) do
+    line = String.trim(quoted, "\"")
+    words = line |> String.split() |> Enum.take(@max_dialogue_words)
+    "\"" <> Enum.join(words, " ") <> "\""
+  end
+
+  defp squeeze(prompt) do
+    prompt
+    |> String.replace(~r/\s{2,}/, " ")
+    |> String.replace(~r/\s+([.,;:!?])/, "\\1")
+    |> String.trim()
+  end
+
   @doc """
   Renders the per-beat user prompt from the pipeline ctx: episode premise,
   story state, history, and the locked choice (or the opening instruction).

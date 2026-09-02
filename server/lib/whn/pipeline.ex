@@ -109,7 +109,10 @@ defmodule Whn.Pipeline do
 
   defp run_segments(dest, beat, video_prompt, frame_url, seed) do
     Enum.reduce_while(0..2, {:ok, frame_url}, fn idx, {:ok, frame} ->
-      prompt = "#{video_prompt} Continuation, part #{idx + 1} of 3."
+      # The one allowed dialogue line is spoken once per scene: segments
+      # after the first drop any quoted speech from the shared prompt.
+      base = if idx == 0, do: video_prompt, else: Whn.Prompts.strip_dialogue(video_prompt)
+      prompt = "#{base} Continuation, part #{idx + 1} of 3."
 
       with {:ok, %{url: url}} <-
              with_retry(:segment, @video_timeout, fn -> i2v(prompt, frame, seed) end),

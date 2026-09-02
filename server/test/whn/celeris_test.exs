@@ -170,6 +170,32 @@ defmodule Whn.CelerisTest do
     assert String.ends_with?(result.next_scene.video_prompt, Prompts.vertical_suffix())
   end
 
+  test "dialogue is capped mechanically: 12 words, first line only, none in bridges" do
+    long_line = Enum.map_join(1..25, " ", &"word#{&1}")
+
+    raw =
+      put_in(
+        @valid,
+        ["next_scene", "video_prompt"],
+        ~s(Tunde pleads. Tunde says: "#{long_line}" The landlord grunts. Landlord says: "extra line that must go" He waits.)
+      )
+      |> put_in(
+        ["bridge", "video_prompt"],
+        ~s(Tunde walks out. Tunde says: "this should never survive in a bridge" He hails a bus.)
+      )
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    scene = result.next_scene.video_prompt
+    [only_quote] = Regex.scan(~r/"[^"]+"/, scene) |> List.flatten()
+    assert length(String.split(String.trim(only_quote, "\""))) == 12
+    refute scene =~ "extra line"
+
+    refute result.bridge.video_prompt =~ "\""
+    refute result.bridge.video_prompt =~ "never survive"
+  end
+
   test "user prompt renders state and choice, or the opening instruction when choice is nil" do
     prompt = Prompts.user_prompt(@ctx)
     assert prompt =~ "Salary Just Entered"

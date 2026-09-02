@@ -189,6 +189,32 @@ defmodule Whn.PipelineTest do
     end
   end
 
+  test "the dialogue line is spoken once per scene: segments after the first drop it" do
+    spoken =
+      put_in(
+        @celeris_reply,
+        ["next_scene", "video_prompt"],
+        ~s(The landlord counts cash. Tunde says: "I am not running anywhere, sir." He waits.)
+      )
+
+    Req.Test.stub(Whn.Celeris, fn conn ->
+      Req.Test.json(conn, %{
+        "choices" => [%{"message" => %{"content" => Jason.encode!(spoken)}}]
+      })
+    end)
+
+    {:ok, _pid} = Whn.Pipeline.start_cycle(self(), ctx(%{last_frame_url: "mock://prev.jpg"}))
+    assert_receive {:pipeline, 1, {:segment_ready, 2, _url}}, 10_000
+
+    [_bridge | segments] = for {:i2v, args} <- Whn.FalMock.calls(), do: args
+    [[seg0, _, _], [seg1, _, _], [seg2, _, _]] = segments
+
+    assert seg0 =~ ~s("I am not running anywhere, sir.")
+    refute seg1 =~ "\""
+    refute seg2 =~ "\""
+    assert seg1 =~ "Continuation, part 2 of 3."
+  end
+
   # CEL-05 (opening)
   test "opening generates a 720x1280 flux frame, then chained segments, no bridge" do
     {:ok, _pid} = Whn.Pipeline.start_opening(self(), ctx(%{beat: 0, winning_choice: nil}))
