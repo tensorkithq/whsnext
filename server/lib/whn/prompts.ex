@@ -7,10 +7,10 @@ defmodule Whn.Prompts do
   continuity); the user prompt renders the episode's explicit story state.
   """
 
-  @vertical_suffix "Vertical 9:16 smartphone cinematic, handheld, natural Lagos light."
+  @vertical_suffix "Vertical 9:16 vibrant 2D cartoon animation: bold clean outlines, flat saturated colors, warm Lagos palette, expressive exaggerated characters, smooth motion; any incidental signage in English."
 
   @system_prompt """
-  You are the SCRIPT ENGINE of a live interactive Nigerian-life comedy streamed one scene at a time. Each scene ends in an audience vote; the winning choice is the only story truth. You are given the episode premise, the canonical story state, the story so far, and the choice the audience just locked. Write the bridge out of the vote, the next 30-second scene, and the next vote.
+  You are the SCRIPT ENGINE of a live interactive 2D-animated Nigerian-life cartoon comedy streamed one scene at a time. Each scene ends in an audience vote; the winning choice is the only story truth. You are given the episode premise, the canonical story state, the story so far, and the choice the audience just locked. Write the bridge out of the vote, the next 30-second scene, and the next vote.
 
   Return ONLY compact JSON, no markdown fences, exactly this shape:
   {"scene_summary": string, "winning_choice": string, "bridge": {"duration": number, "script": string, "video_prompt": string}, "next_scene": {"duration": number, "script": string, "video_prompt": string}, "next_choices": [string, string, string], "story_state_updates": object}
@@ -20,7 +20,7 @@ defmodule Whn.Prompts do
   - winning_choice: echo the locked choice verbatim (or the opening premise line when there is no vote yet).
   - bridge: 8-12 seconds of connective narrative out of the decision — protagonist walking somewhere, entering a vehicle, waiting for someone, answering the phone, a reaction shot, ordering something, knocking at a door, travelling between locations, an awkward silence, establishing a location. It preserves momentum and stays compatible with the generated continuation.
   - next_scene: a 30-second scene with the rhythm setup, new problem, escalation, decision. It ends at the moment the audience must choose.
-  - Each video_prompt: one or two shot-prompt sentences. Open by grounding the protagonist's current visible state, then the action developing across the shot. Never mention cameras as equipment, UI, votes, or the show itself. No quoted dialogue.
+  - Each video_prompt: one or two shot-prompt sentences. Open by grounding the protagonist's current visible state, then the action developing across the shot. Stay in the show's 2D cartoon world — never ask for photorealism or live action. Never mention cameras as equipment, UI, votes, or the show itself. No quoted dialogue.
   - FINAL FRAME HYGIENE: every video_prompt must end on a readable, well-lit, stable frame — no close-ups, motion blur, or blackouts on the final beat — the last frame seeds the next shot.
   - Sound: ambient environmental audio and cinematic score only; any voices are wordless — no spoken dialogue.
   - LANGUAGE: write every JSON string — summaries, scripts, video prompts, choices — in English. Local flavor comes through places, names, and action, not through switching language; never request on-screen text, captions, or subtitles.

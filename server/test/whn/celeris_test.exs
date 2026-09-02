@@ -152,6 +152,9 @@ defmodule Whn.CelerisTest do
     assert system =~ "readable"
     assert system =~ "wordless"
     assert system =~ "in English"
+    assert system =~ "2D cartoon"
+    assert Whn.Prompts.vertical_suffix() =~ "2D cartoon"
+    assert Whn.Prompts.vertical_suffix() =~ "English"
     assert system =~ "no spoken dialogue"
     assert system =~ "Return ONLY compact JSON, no markdown fences, exactly this shape:"
   end
