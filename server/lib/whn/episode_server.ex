@@ -58,6 +58,7 @@ defmodule Whn.EpisodeServer do
       seed: Map.get(attrs, :seed, Enum.random(0..2_147_483_646)),
       phase: "idle",
       beat: 0,
+      absurdity_level: 0,
       playback: nil,
       pending_segments: [],
       vote: nil,
@@ -229,6 +230,7 @@ defmodule Whn.EpisodeServer do
       state
       | vote: %{vote | locked: true, winner_idx: winner_idx, tallies: tallies},
         beat: state.beat + 1,
+        absurdity_level: state.absurdity_level + 1,
         scene_urls: []
     }
 
@@ -437,7 +439,8 @@ defmodule Whn.EpisodeServer do
       story_state: state.story_state,
       winning_choice: winning_choice,
       last_frame_url: state.last_frame_url,
-      history: state.history
+      history: state.history,
+      absurdity_level: state.absurdity_level
     }
   end
 
