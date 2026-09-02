@@ -152,6 +152,8 @@ defmodule Whn.CelerisTest do
     assert system =~ "readable"
     assert system =~ "ONE character speaks"
     assert system =~ "English line"
+    assert system =~ "MID-SHOT"
+    assert system =~ "bridge is ALWAYS dialogue-free"
     assert system =~ "wordless"
     assert system =~ "in English"
     assert system =~ "2D cartoon"
