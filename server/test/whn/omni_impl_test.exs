@@ -37,7 +37,8 @@ defmodule Whn.Fal.OmniImplTest do
              prompt: "continue the scene",
              duration: 5,
              resolution: "360p",
-             image_url: "hosted://frame.jpg"
+             image_url: "hosted://frame.jpg",
+             aspect_ratio: "9:16"
            }
 
     refute Map.has_key?(input, :seed)

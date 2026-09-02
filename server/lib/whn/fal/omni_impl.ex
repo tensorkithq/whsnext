@@ -8,8 +8,8 @@ defmodule Whn.Fal.OmniImpl do
   explicitly instead of passed through: no `seed` and no
   `prompt_expansion_mode` (retries re-roll rather than reproduce a clip),
   integer `duration` hard-capped at 10s, resolution pinned to `"360p"`.
-  For image-to-video the aspect follows the first frame, so `aspect_ratio`
-  is only sent on text-to-video. Output shape matches H3 Max
+  Aspect is pinned to 9:16 on both endpoints — omni does not follow the
+  input frame's aspect. Output shape matches H3 Max
   (`video.url`). Non-video operations delegate to the default engine.
   """
 
@@ -51,7 +51,10 @@ defmodule Whn.Fal.OmniImpl do
 
   @doc false
   def i2v_input(prompt, image_url, opts) do
-    prompt |> base_input(opts) |> Map.put(:image_url, image_url)
+    prompt
+    |> base_input(opts)
+    |> Map.put(:image_url, image_url)
+    |> Map.put(:aspect_ratio, "9:16")
   end
 
   defp base_input(prompt, opts) do
