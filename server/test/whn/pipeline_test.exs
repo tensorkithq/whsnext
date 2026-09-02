@@ -102,7 +102,8 @@ defmodule Whn.PipelineTest do
         story_state: %{},
         winning_choice: "Pay the landlord half",
         last_frame_url: nil,
-        history: []
+        history: [],
+        absurdity_level: 1
       },
       overrides
     )

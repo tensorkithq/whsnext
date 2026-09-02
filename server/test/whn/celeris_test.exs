@@ -14,7 +14,8 @@ defmodule Whn.CelerisTest do
     story_state: %{"money" => 180_000},
     winning_choice: "Pay the landlord half",
     last_frame_url: "https://example.com/frame.jpg",
-    history: ["Salary landed and the phone immediately lit up."]
+    history: ["Salary landed and the phone immediately lit up."],
+    absurdity_level: 2
   }
 
   @valid %{
@@ -269,5 +270,85 @@ defmodule Whn.CelerisTest do
 
     opening = Prompts.user_prompt(%{@ctx | winning_choice: nil})
     assert opening =~ "OPENING — establish the premise and first decision"
+  end
+
+  # EL-04
+  test "user prompt carries the level's labeled ESCALATION line" do
+    assert Prompts.user_prompt(@ctx) =~ "ESCALATION (L2): " <> Prompts.escalation_fragment(2)
+  end
+
+  # EL-05
+  test "finalize appends the escalation line to both video prompts, before the suffix" do
+    respond_with(Jason.encode!(@valid))
+
+    assert {:ok, result} = Celeris.run(@ctx)
+    escalation = "\nEscalation: " <> Prompts.escalation_fragment(2)
+
+    for vp <- [result.bridge.video_prompt, result.next_scene.video_prompt] do
+      assert vp =~ escalation
+      assert String.ends_with?(vp, Prompts.vertical_suffix())
+    end
+  end
+
+  # EL-05
+  test "the escalation line survives dialogue clamping intact, newline and all" do
+    raw =
+      put_in(
+        @valid,
+        ["next_scene", "video_prompt"],
+        ~s(Tunde pleads. Tunde says: "Please, just one more week." The landlord waits.)
+      )
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    assert result.next_scene.video_prompt =~
+             "\nEscalation: " <> Prompts.escalation_fragment(2)
+  end
+
+  # EL-06
+  test "the canned fallback beat's video prompts carry the escalation line" do
+    respond_with("no json here, sorry")
+
+    assert {:ok, :fallback, result} = Celeris.run(@ctx)
+    escalation = "\nEscalation: " <> Prompts.escalation_fragment(2)
+
+    assert result.bridge.video_prompt =~ escalation
+    assert result.next_scene.video_prompt =~ escalation
+  end
+
+  # EL-07
+  test "levels above the ladder top clamp to L5, label included" do
+    assert Prompts.escalation_fragment(9) == Prompts.escalation_fragment(5)
+    assert Prompts.user_prompt(%{@ctx | absurdity_level: 9}) =~ "ESCALATION (L5):"
+  end
+
+  # EL-08
+  test "system prompt makes escalation server-owned and options escalation-form" do
+    system = Prompts.system_prompt()
+
+    assert system =~ "ESCALATION"
+    assert system =~ "never whether the story escalates"
+    assert system =~ "three forms of the same next beat"
+    assert system =~ "no duplicates"
+  end
+
+  # EL-09
+  test "duplicate options are deduped and backfilled without reintroducing one" do
+    raw =
+      put_in(@valid["next_choices"], [
+        "Stir with the paddle",
+        "Stir with the paddle",
+        "Climb in and stomp"
+      ])
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    assert length(result.next_choices) == 3
+    assert result.next_choices == Enum.uniq(result.next_choices)
+    assert "Stir with the paddle" in result.next_choices
+    assert "Climb in and stomp" in result.next_choices
+    assert "Face the problem head-on" in result.next_choices
   end
 end
