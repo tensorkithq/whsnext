@@ -8,7 +8,10 @@ defmodule Whn.Fal do
 
       Application.put_env(:whn, :fal_impl, MyStub)
 
-  Defaults to `Whn.Fal.FalExImpl`, which drives the `fal_ex` package.
+  Without an override the impl follows the video engine: `VIDEO_ENGINE=omni`
+  selects `Whn.Fal.OmniImpl` (Gemini Omni Flash), anything else selects
+  `Whn.Fal.FalExImpl` (MiniMax H3 Max). The env var is read at call time,
+  like the rest of the runtime configuration.
   """
 
   @callback t2v(prompt :: String.t(), opts :: keyword()) ::
@@ -36,5 +39,21 @@ defmodule Whn.Fal do
   @doc "Uploads a local file to fal storage. Returns the hosted URL."
   def upload(path), do: impl().upload(path)
 
-  defp impl, do: Application.get_env(:whn, :fal_impl, Whn.Fal.FalExImpl)
+  @doc """
+  The video engine selected by the `VIDEO_ENGINE` env var, read at call
+  time: `:omni` for `"omni"`, `:default` otherwise. The pipeline branches
+  on this for engine-specific clip plans and timeouts.
+  """
+  def video_engine do
+    case System.get_env("VIDEO_ENGINE") do
+      "omni" -> :omni
+      _ -> :default
+    end
+  end
+
+  @doc false
+  def impl, do: Application.get_env(:whn, :fal_impl) || default_impl(video_engine())
+
+  defp default_impl(:omni), do: Whn.Fal.OmniImpl
+  defp default_impl(:default), do: Whn.Fal.FalExImpl
 end

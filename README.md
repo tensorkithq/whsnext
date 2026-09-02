@@ -455,6 +455,7 @@ Notes:
 - Postgres listens on 57432, not 5432; the port is pinned in the server config, so no env vars needed.
 - `mix test` talks to the same Postgres — keep `pg-start` running.
 - `pg-stop` shuts Postgres down when you're done.
+- `VIDEO_ENGINE=omni` switches video generation to Google's Gemini Omni Flash (via fal); unset, it stays on MiniMax H3 Max.
 
 ### Start the live episode
 

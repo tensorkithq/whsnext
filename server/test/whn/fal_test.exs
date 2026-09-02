@@ -76,6 +76,20 @@ defmodule Whn.FalTest do
     assert_received {:fal_call, :upload, ["/tmp/frame.jpg"]}
   end
 
+  test "VIDEO_ENGINE picks the video impl; an app-env override still wins" do
+    on_exit(fn -> System.delete_env("VIDEO_ENGINE") end)
+
+    # the app-env override (how tests stub fal) beats the engine env var
+    System.put_env("VIDEO_ENGINE", "omni")
+    assert Whn.Fal.impl() == RecordingFal
+
+    Application.delete_env(:whn, :fal_impl)
+    assert Whn.Fal.impl() == Whn.Fal.OmniImpl
+
+    System.delete_env("VIDEO_ENGINE")
+    assert Whn.Fal.impl() == Whn.Fal.FalExImpl
+  end
+
   test "opts default to an empty list on every arity-optional operation" do
     assert {:ok, _} = Whn.Fal.t2v("prompt only")
     assert_received {:fal_call, :t2v, ["prompt only", []]}

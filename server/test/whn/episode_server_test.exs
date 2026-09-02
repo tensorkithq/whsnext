@@ -110,6 +110,28 @@ defmodule Whn.EpisodeServerTest do
     assert :sys.get_state(pid).phase == "live"
   end
 
+  test "a second bridge_ready for the same beat extends the pending bridge entry" do
+    pid = start_episode()
+    send(pid, {:timeline, :scene_boundary})
+    assert_receive %Broadcast{event: "phase", payload: %{phase: "hold"}}
+
+    send(pid, {:pipeline, 0, {:bridge_ready, "https://cdn.fal.example/bridge-a.mp4"}})
+    send(pid, {:pipeline, 0, {:bridge_ready, "https://cdn.fal.example/bridge-b.mp4"}})
+    send(pid, {:pipeline, 0, {:segment_ready, 0, "https://cdn.fal.example/seg0.mp4"}})
+
+    # one playback unit carries both bridge clips — never two bridge playbacks
+    assert_receive %Broadcast{event: "playback", payload: playback}
+    assert playback.kind == "bridge"
+
+    assert playback.segments == [
+             "https://cdn.fal.example/bridge-a.mp4",
+             "https://cdn.fal.example/bridge-b.mp4"
+           ]
+
+    assert [%{kind: "scene", segments: ["https://cdn.fal.example/seg0.mp4"]}] =
+             :sys.get_state(pid).pending_segments
+  end
+
   # EP-07
   test "deadline_ms and started_at_ms are absolute epoch milliseconds" do
     pid = start_episode()

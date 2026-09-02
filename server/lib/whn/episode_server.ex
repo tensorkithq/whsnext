@@ -218,10 +218,23 @@ defmodule Whn.EpisodeServer do
     }
   end
 
+  # A repeat bridge_ready for the same beat (the omni engine sends its
+  # 10s+5s clip pair as two messages) extends the pending bridge entry so
+  # both clips play as one playback unit.
   defp handle_pipeline({:bridge_ready, url}, state) do
-    persist_beat(state, "bridge", [url])
-    entry = %{kind: "bridge", beat: state.beat, segments: [url]}
-    %{state | pending_segments: state.pending_segments ++ [entry]}
+    beat = state.beat
+
+    case List.last(state.pending_segments) do
+      %{kind: "bridge", beat: ^beat} = entry ->
+        updated = %{entry | segments: entry.segments ++ [url]}
+        persist_beat(state, "bridge", updated.segments)
+        %{state | pending_segments: List.replace_at(state.pending_segments, -1, updated)}
+
+      _ ->
+        persist_beat(state, "bridge", [url])
+        entry = %{kind: "bridge", beat: beat, segments: [url]}
+        %{state | pending_segments: state.pending_segments ++ [entry]}
+    end
   end
 
   defp handle_pipeline({:segment_ready, _idx, url}, state) do

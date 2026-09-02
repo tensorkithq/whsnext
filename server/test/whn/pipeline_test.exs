@@ -159,6 +159,83 @@ defmodule Whn.PipelineTest do
              for({:i2v, args} <- Whn.FalMock.calls(), do: args)
   end
 
+  describe "VIDEO_ENGINE=omni" do
+    setup do
+      System.put_env("VIDEO_ENGINE", "omni")
+      on_exit(fn -> System.delete_env("VIDEO_ENGINE") end)
+      :ok
+    end
+
+    test "bridge is 15s as two chained clips, each sent as its own bridge_ready" do
+      {:ok, _pid} = Whn.Pipeline.start_cycle(self(), ctx(%{last_frame_url: "mock://prev.jpg"}))
+
+      assert_receive {:pipeline, 1, {:bridge_ready, first_url}}, 10_000
+      assert_receive {:pipeline, 1, {:bridge_ready, second_url}}, 10_000
+      assert is_binary(first_url) and is_binary(second_url)
+
+      for expected_idx <- 0..2 do
+        assert_receive {:pipeline, 1, {:segment_ready, idx, url}}, 10_000
+        assert idx == expected_idx
+        assert is_binary(url)
+      end
+
+      refute_receive {:pipeline, _beat, {:error, _stage, _reason}}, 100
+
+      i2v_calls = for {:i2v, args} <- Whn.FalMock.calls(), do: args
+      # bridge clip 1, bridge clip 2, then the three parallel segments
+      assert length(i2v_calls) == 5
+      assert [[_, clip1_image, clip1_opts], [_, clip2_image, clip2_opts] | _] = i2v_calls
+
+      assert clip1_image == "mock://prev.jpg"
+      assert clip1_opts[:duration] == 10
+      # clip 2 chains from clip 1's extracted last frame, at 5s
+      assert clip2_image =~ "mock://frame-"
+      assert clip2_opts[:duration] == 5
+    end
+
+    test "scene segments fan out in parallel from one shared anchor frame" do
+      {:ok, _pid} = Whn.Pipeline.start_cycle(self(), ctx(%{last_frame_url: "mock://prev.jpg"}))
+      assert_receive {:pipeline, 1, {:segment_ready, 2, _url}}, 10_000
+
+      segments =
+        for {:i2v, [prompt, image, opts]} <- Whn.FalMock.calls(),
+            prompt =~ "Continuation, part",
+            do: {prompt, image, opts}
+
+      assert length(segments) == 3
+
+      # every segment animates from the same anchor: the extracted last
+      # frame of the second bridge clip, not each other's frames
+      anchors = for {_prompt, image, _opts} <- segments, do: image
+      assert [anchor] = Enum.uniq(anchors)
+      assert anchor =~ "mock://frame-"
+
+      parts =
+        for {prompt, _image, _opts} <- segments do
+          [_, part] = Regex.run(~r/part (\d) of 3/, prompt)
+          part
+        end
+
+      assert Enum.sort(parts) == ["1", "2", "3"]
+      for {_prompt, _image, opts} <- segments, do: assert(opts[:duration] == 10)
+    end
+
+    test "opening fans out from the flux frame with no frame extraction" do
+      {:ok, _pid} = Whn.Pipeline.start_opening(self(), ctx(%{beat: 0, winning_choice: nil}))
+
+      for expected_idx <- 0..2 do
+        assert_receive {:pipeline, 0, {:segment_ready, idx, _url}}, 10_000
+        assert idx == expected_idx
+      end
+
+      refute_receive {:pipeline, _beat, {:bridge_ready, _url}}, 100
+
+      anchors = for {:i2v, [_prompt, image, _opts]} <- Whn.FalMock.calls(), do: image
+      assert anchors == List.duplicate("mock://flux-frame.png", 3)
+      assert [] = for({:upload, args} <- Whn.FalMock.calls(), do: args)
+    end
+  end
+
   # CEL-06
   test "a failed segment retries once with identical args and never reports an error" do
     Whn.FalMock.fail_once(:i2v)

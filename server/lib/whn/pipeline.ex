@@ -12,6 +12,12 @@ defmodule Whn.Pipeline do
   makes the request idempotent — before the cycle stops with an error
   message. Per-stage timeouts are 3x the wall-clock measured in the fal
   timing spike.
+
+  Under `VIDEO_ENGINE=omni` (see `Whn.Fal.video_engine/0`) the clip plan
+  changes: the bridge becomes 15s as two chained clips (10s, then 5s from
+  its last frame), and the three scene segments generate in parallel from
+  one shared anchor frame instead of chaining — the "part n of 3" prompt
+  suffix carries continuity. Omni ignores seeds, so its retries re-roll.
   """
 
   @callback start_opening(dest :: pid(), ctx :: map()) :: {:ok, pid()} | {:error, term()}
@@ -23,6 +29,8 @@ defmodule Whn.Pipeline do
   @flux_timeout 36_500
   @video_timeout 16_000
   @frame_timeout 9_000
+  # omni measures ~34s per 10s clip; same 3x headroom
+  @omni_video_timeout 105_000
 
   @impl true
   def start_opening(dest, ctx) do
@@ -42,9 +50,7 @@ defmodule Whn.Pipeline do
     notify(dest, ctx.beat, {:celeris, result})
 
     outcome =
-      with {:ok, %{url: bridge_url}} <- bridge_clip(ctx, result.bridge.video_prompt, seed),
-           :ok <- notify(dest, ctx.beat, {:bridge_ready, bridge_url}),
-           {:ok, frame_url} <- extract_frame(bridge_url) do
+      with {:ok, frame_url} <- run_bridge(dest, ctx, result.bridge.video_prompt, seed) do
         run_segments(dest, ctx.beat, result.next_scene.video_prompt, frame_url, seed)
       end
 
@@ -83,8 +89,36 @@ defmodule Whn.Pipeline do
     "Opening frame: #{ctx.episode.premise} #{Whn.Prompts.vertical_suffix()}"
   end
 
+  defp run_bridge(dest, ctx, prompt, seed) do
+    case Whn.Fal.video_engine() do
+      :default -> run_single_bridge(dest, ctx, prompt, seed)
+      :omni -> run_omni_bridge(dest, ctx, prompt, seed)
+    end
+  end
+
+  defp run_single_bridge(dest, ctx, prompt, seed) do
+    with {:ok, %{url: bridge_url}} <- bridge_clip(ctx, prompt, seed),
+         :ok <- notify(dest, ctx.beat, {:bridge_ready, bridge_url}) do
+      extract_frame(bridge_url)
+    end
+  end
+
+  # Omni plays the bridge as 15s: a 10s clip, then a 5s clip animated from
+  # its last frame. Each lands as its own bridge_ready; the EpisodeServer
+  # extends the pending bridge entry rather than queueing a second playback.
+  defp run_omni_bridge(dest, ctx, prompt, seed) do
+    with {:ok, %{url: first_url}} <- bridge_clip(ctx, prompt, seed),
+         :ok <- notify(dest, ctx.beat, {:bridge_ready, first_url}),
+         {:ok, mid_frame} <- extract_frame(first_url),
+         {:ok, %{url: second_url}} <-
+           with_retry(:bridge, video_timeout(), fn -> i2v(prompt, mid_frame, seed, 5) end),
+         :ok <- notify(dest, ctx.beat, {:bridge_ready, second_url}) do
+      extract_frame(second_url)
+    end
+  end
+
   defp bridge_clip(%{last_frame_url: nil}, prompt, seed) do
-    with_retry(:bridge, @video_timeout, fn ->
+    with_retry(:bridge, video_timeout(), fn ->
       Whn.Fal.t2v(prompt,
         duration: 10,
         resolution: "480P",
@@ -96,15 +130,22 @@ defmodule Whn.Pipeline do
   end
 
   defp bridge_clip(%{last_frame_url: frame_url}, prompt, seed) do
-    with_retry(:bridge, @video_timeout, fn -> i2v(prompt, frame_url, seed) end)
+    with_retry(:bridge, video_timeout(), fn -> i2v(prompt, frame_url, seed) end)
   end
 
   defp run_segments(dest, beat, video_prompt, frame_url, seed) do
+    case Whn.Fal.video_engine() do
+      :default -> run_chained_segments(dest, beat, video_prompt, frame_url, seed)
+      :omni -> run_parallel_segments(dest, beat, video_prompt, frame_url, seed)
+    end
+  end
+
+  defp run_chained_segments(dest, beat, video_prompt, frame_url, seed) do
     Enum.reduce_while(0..2, {:ok, frame_url}, fn idx, {:ok, frame} ->
-      prompt = "#{video_prompt} Continuation, part #{idx + 1} of 3."
+      prompt = segment_prompt(video_prompt, idx)
 
       with {:ok, %{url: url}} <-
-             with_retry(:segment, @video_timeout, fn -> i2v(prompt, frame, seed) end),
+             with_retry(:segment, video_timeout(), fn -> i2v(prompt, frame, seed) end),
            :ok <- notify(dest, beat, {:segment_ready, idx, url}),
            {:ok, next_frame} <- next_frame(idx, url) do
         {:cont, {:ok, next_frame}}
@@ -114,13 +155,54 @@ defmodule Whn.Pipeline do
     end)
   end
 
-  defp i2v(prompt, image_url, seed) do
+  # Omni fan-out: all three segments animate in parallel from the same
+  # anchor frame — no chaining, the prompt suffix carries continuity.
+  # Results are consumed in stream order, so segment_ready still arrives
+  # as 0, 1, 2 even when a later clip finishes first.
+  defp run_parallel_segments(dest, beat, video_prompt, frame_url, seed) do
+    timeout = video_timeout()
+
+    0..2
+    |> Task.async_stream(
+      fn idx ->
+        Process.flag(:trap_exit, true)
+        prompt = segment_prompt(video_prompt, idx)
+        with_retry(:segment, timeout, fn -> i2v(prompt, frame_url, seed) end)
+      end,
+      max_concurrency: 3,
+      timeout: :infinity
+    )
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {{:ok, result}, idx}, :ok ->
+      case result do
+        {:ok, %{url: url}} ->
+          notify(dest, beat, {:segment_ready, idx, url})
+          {:cont, :ok}
+
+        error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  defp segment_prompt(video_prompt, idx) do
+    "#{video_prompt} Continuation, part #{idx + 1} of 3."
+  end
+
+  defp i2v(prompt, image_url, seed, duration \\ 10) do
     Whn.Fal.i2v(prompt, image_url,
-      duration: 10,
+      duration: duration,
       resolution: "480P",
       prompt_expansion_mode: "disabled",
       seed: seed
     )
+  end
+
+  defp video_timeout do
+    case Whn.Fal.video_engine() do
+      :omni -> @omni_video_timeout
+      :default -> @video_timeout
+    end
   end
 
   # the last segment seeds nothing; skip the extraction round trip
