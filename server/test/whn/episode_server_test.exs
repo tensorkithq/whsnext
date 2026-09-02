@@ -58,7 +58,9 @@ defmodule Whn.EpisodeServerTest do
     send(pid, {:timeline, :vote_lock})
 
     assert_receive %Broadcast{event: "vote_locked", payload: %{winner_idx: 1, tallies: [0, 2, 2]}}
-    assert_receive %Broadcast{event: "vote_closed", payload: %{}}
+    # REV-01: the close waits for the scheduled reveal window, it is not
+    # broadcast in the same handler as the lock
+    refute_receive %Broadcast{event: "vote_closed"}
 
     # the broadcasts go out before the pipeline dispatch inside the same
     # handle_info; sync on the server so the stub has recorded the call
@@ -66,6 +68,34 @@ defmodule Whn.EpisodeServerTest do
     assert [{:start_cycle, ctx}] = Whn.PipelineStub.calls()
     assert ctx.winning_choice == "Hide the alert"
     assert ctx.beat == 1
+
+    send(pid, {:timeline, :vote_close})
+    assert_receive %Broadcast{event: "vote_closed", payload: %{}}
+  end
+
+  # REV-02
+  test "a stale vote_close falls through: duplicate close is silent, an open poll survives" do
+    pid = start_episode()
+    open_vote(pid)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a1", 1)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a2", 1)
+    send(pid, {:timeline, :vote_lock})
+    assert_receive %Broadcast{event: "vote_locked"}
+
+    send(pid, {:timeline, :vote_close})
+    assert_receive %Broadcast{event: "vote_closed"}
+
+    send(pid, {:timeline, :vote_close})
+    refute_receive %Broadcast{event: "vote_closed"}
+
+    # reopen for the next beat: a straggling vote_close must not touch it
+    send(pid, {:pipeline, 1, {:celeris, @celeris}})
+    send(pid, {:timeline, :vote_open})
+    assert_receive %Broadcast{event: "vote_open"}
+
+    send(pid, {:timeline, :vote_close})
+    refute_receive %Broadcast{event: "vote_closed"}
+    assert :sys.get_state(pid).vote.locked == false
   end
 
   # D-01 at the server boundary

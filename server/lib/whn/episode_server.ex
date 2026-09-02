@@ -28,7 +28,8 @@ defmodule Whn.EpisodeServer do
     vote_window_ms: 10_000,
     segment_ms: 10_000,
     presence_check_ms: 3_000,
-    revote_ms: 15_000
+    revote_ms: 15_000,
+    reveal_ms: 2_500
   }
 
   def start_link(attrs) do
@@ -190,6 +191,17 @@ defmodule Whn.EpisodeServer do
 
   defp handle_timeline(:vote_lock, state), do: state
 
+  # The reveal window: a quorum lock schedules this instead of closing
+  # inline, so the winner stays on screen. Only a still-locked vote is
+  # closeable — a consumed close leaves vote nil and a reopened poll is
+  # locked: false, so a stale event falls through.
+  defp handle_timeline(:vote_close, %{vote: %{locked: true}} = state) do
+    broadcast("vote_closed", %{})
+    %{state | vote: nil}
+  end
+
+  defp handle_timeline(:vote_close, state), do: state
+
   defp handle_timeline(:revote, %{vote: nil, next_choices: [_ | _]} = state) do
     if state.viewer_count_fn.() >= 1 do
       handle_timeline(:vote_open, state)
@@ -210,7 +222,7 @@ defmodule Whn.EpisodeServer do
       tallies |> Enum.with_index() |> Enum.max_by(fn {count, _idx} -> count end)
 
     broadcast("vote_locked", %{winner_idx: winner_idx, tallies: tallies})
-    broadcast("vote_closed", %{})
+    schedule(:vote_close, state.timings.reveal_ms)
     persist_finalize(state, tallies, winner_idx)
 
     state = %{
