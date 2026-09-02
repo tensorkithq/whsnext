@@ -15,7 +15,7 @@ Project-wide state for the `jira` workflow. The orchestrator commands keep this 
 
 | Slug | Status | Goal | Outcome |
 |------|--------|------|---------|
-| 2026-09-02-frame-chained-continuity | planned | Scene-end frame seeds the bridge, bridge-end seeds the next scene; winner reveal delay; EP-08 hygiene | — |
+| 2026-09-02-frame-chained-continuity | done | Scene-end frame seeds the bridge, bridge-end seeds the next scene; winner reveal delay; EP-08 hygiene | PASS (11/11 outcomes, 9/9 predicates, 49 tests) — rides [PR #6](https://github.com/tensorkithq/whn/pull/6) |
 | 2026-08-31-live-episode-mvp | done | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | PASS (8/8 outcomes, 33/33 predicates, 37 tests) — [PR #6](https://github.com/tensorkithq/whn/pull/6) |
 
 Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `blocked`, `abandoned`.
@@ -54,7 +54,7 @@ Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `bloc
 
 <!-- Active blockers across all sprints. Resolved blockers move to the Decisions log. -->
 
-None active. Two verifier follow-ups carried on PR #6 (not blockers): cross-beat frame chaining is prompt-only in production (last_frame_url never carried forward → bridges take the t2v branch); winner-reveal styling unreachable (vote_closed broadcast immediately after vote_locked).
+None active. The two PR #6 follow-ups (frame chaining production-dead; winner reveal unreachable) were resolved by sprint 2026-09-02-frame-chained-continuity. Remaining accepted risk: the frame chain is mock-verified; live-fal visual continuity awaits a production smoke.
 
 ## Notes
 
