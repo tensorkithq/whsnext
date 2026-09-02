@@ -1,5 +1,23 @@
 import { useEffect, useState } from "react";
 import type { VoteState } from "../lib/types";
+import { playhead } from "../lib/playhead";
+
+/** The server opens the vote 10s into the scene; reveal just shy of it. */
+const GATE_OFFSET_S = 9.5;
+/** Never squeeze a lagging viewer's window below this much of the deadline. */
+const GATE_FLOOR_MS = 7_000;
+
+/**
+ * The server broadcasts vote_open on its own clock, but a buffering client
+ * may be visually behind — showing the poll then spoils a moment the viewer
+ * hasn't reached. Hold the card until the picture catches up, with a
+ * deadline floor so a badly lagged viewer still gets a usable window.
+ */
+function gateOpen(vote: VoteState, skewMs: number) {
+  if (vote.your_vote !== null || vote.locked) return true;
+  if (vote.deadline_ms - (Date.now() + skewMs) <= GATE_FLOOR_MS) return true;
+  return playhead.kind === "scene" && playhead.seconds >= GATE_OFFSET_S;
+}
 
 /**
  * Instagram-story poll in the lower third. Pills until you commit, then
@@ -16,8 +34,20 @@ export function VoteOverlay({
   skewMs: number;
   castVote: (optionIdx: number) => void;
 }) {
+  const [visible, setVisible] = useState(() => gateOpen(vote, skewMs));
+
+  useEffect(() => {
+    if (visible) return;
+    const timer = setInterval(() => {
+      if (gateOpen(vote, skewMs)) setVisible(true);
+    }, 250);
+    return () => clearInterval(timer);
+  }, [visible, vote, skewMs]);
+
   const revealed = vote.your_vote !== null || vote.locked;
   const totalVotes = vote.tallies.reduce((sum, n) => sum + n, 0);
+
+  if (!visible) return null;
 
   return (
     <div className="poll">

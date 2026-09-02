@@ -35,7 +35,12 @@ defmodule Whn.PipelineTest do
 
     on_exit(fn -> File.rm(fixture) end)
 
-    start_supervised!({Whn.FalMock, video: fixture})
+    # Unlinked, not start_supervised!: linked and supervised processes die
+    # with the test process, before on_exit callbacks — but the mock must
+    # outlive the cycle task's trailing frame extraction. The drain at the
+    # end of setup runs first (LIFO) and waits the task out; then this stop.
+    {:ok, mock} = Whn.FalMock.start(video: fixture)
+    on_exit(fn -> Agent.stop(mock) end)
 
     previous_fal = Application.get_env(:whn, :fal_impl)
     Application.put_env(:whn, :fal_impl, Whn.FalMock)
@@ -65,6 +70,21 @@ defmodule Whn.PipelineTest do
       Req.Test.json(conn, %{
         "choices" => [%{"message" => %{"content" => Jason.encode!(@celeris_reply)}}]
       })
+    end)
+
+    # Last registered → first to run: the cycle task must finish its trailing
+    # extraction while the mock and the :fal_impl swap are still in place,
+    # or the tail would crash on a dead Agent — or reach the real client.
+    on_exit(fn ->
+      for task <- Task.Supervisor.children(Whn.TaskSupervisor) do
+        ref = Process.monitor(task)
+
+        receive do
+          {:DOWN, ^ref, :process, _pid, _reason} -> :ok
+        after
+          15_000 -> :ok
+        end
+      end
     end)
 
     :ok
@@ -109,6 +129,41 @@ defmodule Whn.PipelineTest do
     refute_receive {:pipeline, _beat, {:error, _stage, _reason}}, 100
   end
 
+  # FC-01
+  test "cycle emits the scene-end frame after the final segment, no error" do
+    {:ok, _pid} = Whn.Pipeline.start_cycle(self(), ctx(%{last_frame_url: "mock://prev.jpg"}))
+
+    assert_receive {:pipeline, 1, {:celeris, _result}}, 10_000
+    assert_receive {:pipeline, 1, {:bridge_ready, _bridge_url}}, 10_000
+
+    for idx <- 0..2 do
+      assert_receive {:pipeline, 1, {:segment_ready, ^idx, _url}}, 10_000
+    end
+
+    assert_receive {:pipeline, 1, {:last_frame, frame_url}}, 10_000
+    assert frame_url =~ "mock://frame-"
+
+    refute_receive {:pipeline, _beat, {:error, _stage, _reason}}, 100
+  end
+
+  # FC-04
+  test "a failed scene-end extraction sends no frame message and no error" do
+    # upload calls in a cycle: bridge-frame extraction (1), segment-0
+    # extraction (2), segment-1 extraction (3), trailing extraction (4).
+    # No failures armed on 1-3 and the trailing attempt is single-shot,
+    # so call 4 deterministically hits it.
+    Whn.FalMock.fail_on_call(:upload, 4)
+
+    {:ok, _pid} = Whn.Pipeline.start_cycle(self(), ctx(%{last_frame_url: "mock://prev.jpg"}))
+
+    for idx <- 0..2 do
+      assert_receive {:pipeline, 1, {:segment_ready, ^idx, _url}}, 10_000
+    end
+
+    refute_receive {:pipeline, _beat, {:error, _stage, _reason}}, 100
+    refute_receive {:pipeline, _beat, {:last_frame, _url}}, 100
+  end
+
   # CEL-05
   test "cycle honors the i2v param contract with seed = episode seed + beat" do
     {:ok, _pid} = Whn.Pipeline.start_cycle(self(), ctx(%{last_frame_url: "mock://prev.jpg"}))
@@ -134,6 +189,32 @@ defmodule Whn.PipelineTest do
     end
   end
 
+  test "the dialogue line is spoken once per scene: segments after the first drop it" do
+    spoken =
+      put_in(
+        @celeris_reply,
+        ["next_scene", "video_prompt"],
+        ~s(The landlord counts cash. Tunde says: "I am not running anywhere, sir." He waits.)
+      )
+
+    Req.Test.stub(Whn.Celeris, fn conn ->
+      Req.Test.json(conn, %{
+        "choices" => [%{"message" => %{"content" => Jason.encode!(spoken)}}]
+      })
+    end)
+
+    {:ok, _pid} = Whn.Pipeline.start_cycle(self(), ctx(%{last_frame_url: "mock://prev.jpg"}))
+    assert_receive {:pipeline, 1, {:segment_ready, 2, _url}}, 10_000
+
+    [_bridge | segments] = for {:i2v, args} <- Whn.FalMock.calls(), do: args
+    [[seg0, _, _], [seg1, _, _], [seg2, _, _]] = segments
+
+    assert seg0 =~ ~s("I am not running anywhere, sir.")
+    refute seg1 =~ "\""
+    refute seg2 =~ "\""
+    assert seg1 =~ "Continuation, part 2 of 3."
+  end
+
   # CEL-05 (opening)
   test "opening generates a 720x1280 flux frame, then chained segments, no bridge" do
     {:ok, _pid} = Whn.Pipeline.start_opening(self(), ctx(%{beat: 0, winning_choice: nil}))
@@ -157,6 +238,23 @@ defmodule Whn.PipelineTest do
     # first segment animates from the flux frame itself
     assert [[_prompt, "mock://flux-frame.png", _opts] | _] =
              for({:i2v, args} <- Whn.FalMock.calls(), do: args)
+  end
+
+  # FC-01 (opening) — extraction hooks into run_segments' shared path, so the
+  # opening chains too and the very first cycle's bridge can animate from it
+  test "opening emits its scene-end frame so the first cycle's bridge can chain" do
+    {:ok, _pid} = Whn.Pipeline.start_opening(self(), ctx(%{beat: 0, winning_choice: nil}))
+
+    assert_receive {:pipeline, 0, {:celeris, _result}}, 10_000
+
+    for idx <- 0..2 do
+      assert_receive {:pipeline, 0, {:segment_ready, ^idx, _url}}, 10_000
+    end
+
+    assert_receive {:pipeline, 0, {:last_frame, frame_url}}, 10_000
+    assert frame_url =~ "mock://frame-"
+
+    refute_receive {:pipeline, _beat, {:error, _stage, _reason}}, 100
   end
 
   # CEL-06

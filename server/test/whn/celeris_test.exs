@@ -144,14 +144,21 @@ defmodule Whn.CelerisTest do
     assert {:ok, :fallback, _result} = Celeris.run(@ctx)
   end
 
-  # CEL-03
-  test "system prompt carries the final-frame hygiene and wordless-sound rules" do
+  # CEL-03 (sound half superseded: single-speaker English dialogue rule, issue #7)
+  test "system prompt carries the final-frame hygiene and single-speaker dialogue rules" do
     system = Prompts.system_prompt()
 
     assert system =~ "FINAL FRAME HYGIENE"
     assert system =~ "readable"
+    assert system =~ "ONE character speaks"
+    assert system =~ "English line"
+    assert system =~ "MID-SHOT"
+    assert system =~ "bridge is ALWAYS dialogue-free"
     assert system =~ "wordless"
-    assert system =~ "no spoken dialogue"
+    assert system =~ "in English"
+    assert system =~ "2D cartoon"
+    assert Whn.Prompts.vertical_suffix() =~ "2D cartoon"
+    assert Whn.Prompts.vertical_suffix() =~ "single on-screen speaker"
     assert system =~ "Return ONLY compact JSON, no markdown fences, exactly this shape:"
   end
 
@@ -161,6 +168,83 @@ defmodule Whn.CelerisTest do
     assert {:ok, result} = Celeris.run(@ctx)
     assert String.ends_with?(result.bridge.video_prompt, Prompts.vertical_suffix())
     assert String.ends_with?(result.next_scene.video_prompt, Prompts.vertical_suffix())
+  end
+
+  test "dialogue is capped mechanically: 12 words, first line only, none in bridges" do
+    long_line = Enum.map_join(1..25, " ", &"word#{&1}")
+
+    raw =
+      put_in(
+        @valid,
+        ["next_scene", "video_prompt"],
+        ~s(Tunde pleads. Tunde says: "#{long_line}" The landlord grunts. Landlord says: "extra line that must go" He waits.)
+      )
+      |> put_in(
+        ["bridge", "video_prompt"],
+        ~s(Tunde walks out. Tunde says: "this should never survive in a bridge" He hails a bus.)
+      )
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    scene = result.next_scene.video_prompt
+    [only_quote] = Regex.scan(~r/"[^"]+"/, scene) |> List.flatten()
+    assert length(String.split(String.trim(only_quote, "\""))) == 12
+    refute scene =~ "extra line"
+    assert scene =~ "The speaker then falls silent."
+
+    refute result.bridge.video_prompt =~ "\""
+    refute result.bridge.video_prompt =~ "never survive"
+  end
+
+  test "SCRIPT_ENGINE=gemini routes through the fal vision route with the same prompts" do
+    defmodule VisionStub do
+      @behaviour Whn.Fal
+      def t2v(_p, _o), do: {:error, :unused}
+      def i2v(_p, _i, _o), do: {:error, :unused}
+      def flux(_p, _o), do: {:error, :unused}
+      def upload(_p), do: {:error, :unused}
+
+      def vision(prompt, opts) do
+        send(self(), {:vision_called, prompt, opts})
+
+        valid = %{
+          "scene_summary" => "Gemini wrote this beat.",
+          "winning_choice" => "Pay the landlord half",
+          "bridge" => %{"duration" => 10, "script" => "s", "video_prompt" => "He walks out."},
+          "next_scene" => %{
+            "duration" => 30,
+            "script" => "s",
+            "video_prompt" => "The argument continues."
+          },
+          "next_choices" => ["A real option", "Another option", "A third option"],
+          "story_state_updates" => %{}
+        }
+
+        {:ok, %{output: Jason.encode!(valid)}}
+      end
+    end
+
+    previous = Application.get_env(:whn, :fal_impl)
+    Application.put_env(:whn, :fal_impl, VisionStub)
+    System.put_env("SCRIPT_ENGINE", "gemini")
+
+    on_exit(fn ->
+      System.delete_env("SCRIPT_ENGINE")
+
+      if previous,
+        do: Application.put_env(:whn, :fal_impl, previous),
+        else: Application.delete_env(:whn, :fal_impl)
+    end)
+
+    assert {:ok, result} = Celeris.run(@ctx)
+    assert result.scene_summary == "Gemini wrote this beat."
+
+    assert_receive {:vision_called, prompt, opts}
+    assert prompt =~ "Salary Just Entered"
+    assert opts[:model] == "google/gemini-2.5-flash-lite"
+    assert opts[:system_prompt] =~ "FINAL FRAME HYGIENE"
+    assert opts[:max_tokens] == 700
   end
 
   test "user prompt renders state and choice, or the opening instruction when choice is nil" do
