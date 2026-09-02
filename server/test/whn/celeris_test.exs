@@ -353,4 +353,25 @@ defmodule Whn.CelerisTest do
     assert "Climb in and stomp" in result.next_choices
     assert "Face the problem head-on" in result.next_choices
   end
+
+  # EL-09
+  test "backfill skips a fallback choice the model already echoed" do
+    raw =
+      put_in(@valid["next_choices"], [
+        "Face the problem head-on",
+        "Face the problem head-on",
+        "Climb in and stomp"
+      ])
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    # the echoed fallback string is kept once; the backfill must reach past
+    # it instead of reintroducing it as a duplicate
+    assert result.next_choices == [
+             "Face the problem head-on",
+             "Climb in and stomp",
+             "Stall and buy time"
+           ]
+  end
 end
