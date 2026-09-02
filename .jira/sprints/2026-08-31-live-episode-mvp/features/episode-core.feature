@@ -43,6 +43,7 @@ Feature: Server-authoritative live episode with synchronized voting
     When vote_open and playback payloads are inspected
     Then deadline_ms and started_at_ms are absolute server epoch milliseconds
 
+  # Superseded 2026-09-02 by @req:REV-03 (2026-09-02-frame-chained-continuity): the quorum guard (min_voters, commit ba56bb2) replaced the zero-presence hold at lock. Preserved verbatim for this sprint's claim map.
   @req:EP-08 @plan:IV @wave:2
   Scenario: Zero viewers stop the spend
     Given an episode booted with no presence entries
