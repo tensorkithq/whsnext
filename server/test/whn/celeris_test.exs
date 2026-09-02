@@ -152,7 +152,8 @@ defmodule Whn.CelerisTest do
     assert system =~ "readable"
     assert system =~ "ONE character speaks"
     assert system =~ "English line"
-    assert system =~ "MID-SHOT"
+    assert system =~ "Camera:"
+    assert system =~ "Dialogue (the only spoken words in the clip):"
     assert system =~ "bridge is ALWAYS dialogue-free"
     assert system =~ "wordless"
     assert system =~ "in English"
@@ -191,10 +192,23 @@ defmodule Whn.CelerisTest do
     [only_quote] = Regex.scan(~r/"[^"]+"/, scene) |> List.flatten()
     assert length(String.split(String.trim(only_quote, "\""))) == 12
     refute scene =~ "extra line"
-    assert scene =~ "The speaker then falls silent."
+    # the inline line gets moved under the mechanical guard label
+    assert scene =~ ~s{Dialogue (the only spoken words in the clip): Tunde says: "}
 
     refute result.bridge.video_prompt =~ "\""
     refute result.bridge.video_prompt =~ "never survive"
+    refute result.bridge.video_prompt =~ "Dialogue (the only spoken words in the clip):"
+  end
+
+  test "an authored Dialogue block keeps its label and never gains a second one" do
+    authored =
+      "Camera: medium shot.\nEnvironment: doorway.\nAction: Tunde plants his feet.\n" <>
+        ~s{Dialogue (the only spoken words in the clip): Tunde: "Not today, sir."}
+
+    clamped = Prompts.clamp_dialogue(authored)
+
+    assert [_] = Regex.scan(~r/Dialogue \(the only spoken words in the clip\):/, clamped)
+    assert clamped =~ ~s(Tunde: "Not today, sir.")
   end
 
   test "SCRIPT_ENGINE=gemini routes through the fal vision route with the same prompts" do

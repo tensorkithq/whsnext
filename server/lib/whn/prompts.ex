@@ -20,9 +20,9 @@ defmodule Whn.Prompts do
   - winning_choice: echo the locked choice verbatim (or the opening premise line when there is no vote yet).
   - bridge: 8-12 seconds of connective narrative out of the decision — protagonist walking somewhere, entering a vehicle, waiting for someone, answering the phone, a reaction shot, ordering something, knocking at a door, travelling between locations, an awkward silence, establishing a location. It preserves momentum and stays compatible with the generated continuation.
   - next_scene: a 30-second scene with the rhythm setup, new problem, escalation, decision. It ends at the moment the audience must choose.
-  - Each video_prompt: one or two shot-prompt sentences. Open by grounding the protagonist's current visible state, then the action developing across the shot. Stay in the show's 2D cartoon world — never ask for photorealism or live action. Never mention cameras as equipment, UI, votes, or the show itself.
+  - Each video_prompt: labeled sections, each on its own line, in this order — Camera: framing and movement for the vertical shot; Environment: location, light, what is visible beyond; Action: open by grounding the protagonist's current visible state, then the action developing across the shot; Dialogue: only when a line is spoken, as specified below. Stay in the show's 2D cartoon world — never ask for photorealism or live action. Never put cameras or crew inside the scene; never mention UI, votes, or the show itself.
   - FINAL FRAME HYGIENE: every video_prompt must end on a readable, well-lit, stable frame — no close-ups, motion blur, or blackouts on the final beat — the last frame seeds the next shot.
-  - Sound: ambient environmental audio and cinematic score, with expressive but wordless vocal reactions — laughs, gasps, exclamations, grunts — layered over them. DIALOGUE: scene clips only — at most ONE character speaks per scene clip, one short English line, at most 12 words (about five seconds of speech), written into the video_prompt as quoted dialogue, e.g. Tunde says: "Not today, sir, please." The line lands MID-SHOT: action establishes first, never speech in the opening seconds, and the line finishes before the final beat. After the line the speaker falls silent — state the post-line silence explicitly in the video_prompt (e.g. then he says nothing more, turning away). Every other voice stays wordless-expressive; never two speakers in one clip; a clip with nothing worth saying carries reactions only. The bridge is ALWAYS dialogue-free — wordless reactions only.
+  - Sound: ambient environmental audio and cinematic score, with expressive but wordless vocal reactions — laughs, gasps, exclamations, grunts — layered over them. DIALOGUE: scene clips only — at most ONE character speaks per scene clip, one short English line, at most 12 words (about five seconds of speech), written as the video_prompt's own labeled block, never inline in the Action prose, e.g. Dialogue (the only spoken words in the clip): Tunde: "Not today, sir, please." The Action establishes before the line lands and carries on after it without further speech. Every other voice stays wordless-expressive; never two speakers in one clip; a clip with nothing worth saying omits the Dialogue block and carries reactions only. The bridge is ALWAYS dialogue-free — wordless reactions only, never a Dialogue block.
   - LANGUAGE: write every JSON string — summaries, scripts, video prompts, choices — in English. Local flavor comes through places, names, and action, not through switching language; never request on-screen text, captions, or subtitles.
   - next_choices: exactly 3 things the protagonist could do next. Each must be immediately understandable without explanation, socially debatable (different viewers genuinely prefer different options), and consequential for future scenes, relationships, resources, or problems. Never an obviously correct option, never an obviously stupid one, no cosmetic choices, no choices whose consequences evaporate.
   - CONTINUITY: scenes are not isolated comedy. Maintain escalating stakes, callbacks to earlier events, unresolved problems, character memory, consequences, and resource depletion or gain. Early choices should be capable of resurfacing later. Rejected options never become story truth.
@@ -39,10 +39,12 @@ defmodule Whn.Prompts do
   # the model's output is untrusted like every other field.
   @max_dialogue_words 12
   @quoted ~r/"[^"]+"/
+  @dialogue_guard "Dialogue (the only spoken words in the clip):"
 
   @doc """
   Keeps only the first quoted dialogue line, truncated to the word cap;
-  any further quoted spans are removed. Used on scene video_prompts.
+  any further quoted spans are removed, and the line is guaranteed to sit
+  under the guarded Dialogue label. Used on scene video_prompts.
   """
   def clamp_dialogue(prompt) do
     case Regex.run(@quoted, prompt, return: :index) do
@@ -53,20 +55,41 @@ defmodule Whn.Prompts do
         head = binary_part(prompt, 0, start)
         quoted = binary_part(prompt, start, len)
         rest = binary_part(prompt, start + len, byte_size(prompt) - start - len)
-        # The silence marker is mechanical, not requested: the video model
-        # keeps improvising speech past the scripted line without it.
-        squeeze(
-          head <> requote(quoted) <> " The speaker then falls silent." <> strip_dialogue(rest)
-        )
+        # The guard label is mechanical, not just requested of the script
+        # engine: the video model improvises extra speech when the prompt
+        # doesn't mark the scripted line as the clip's only spoken words.
+        squeeze(ensure_guard(head) <> requote(quoted) <> " " <> strip_dialogue(rest))
+    end
+  end
+
+  # Leaves an authored Dialogue block alone; when the script engine wrote
+  # the line inline instead, injects the label before the attribution.
+  defp ensure_guard(head) do
+    cond do
+      String.contains?(head, @dialogue_guard) ->
+        head
+
+      match = Regex.run(~r/\A(.*[.!?…])([^.!?…]*)\z/su, head) ->
+        [_, pre, attribution] = match
+        pre <> "\n" <> @dialogue_guard <> attribution
+
+      true ->
+        @dialogue_guard <> " " <> head
     end
   end
 
   @doc """
-  Removes every quoted dialogue span. Used on bridge video_prompts (always
-  dialogue-free) and on scene segments after the first, so the one allowed
-  line is spoken once per scene, not once per segment.
+  Removes every quoted dialogue span and any Dialogue guard label left
+  behind. Used on bridge video_prompts (always dialogue-free) and on scene
+  segments after the first, so the one allowed line is spoken once per
+  scene, not once per segment.
   """
-  def strip_dialogue(prompt), do: prompt |> String.replace(@quoted, "") |> squeeze()
+  def strip_dialogue(prompt) do
+    prompt
+    |> String.replace(@quoted, "")
+    |> String.replace(@dialogue_guard, "")
+    |> squeeze()
+  end
 
   defp requote(quoted) do
     line = String.trim(quoted, "\"")
