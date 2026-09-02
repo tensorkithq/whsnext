@@ -13,6 +13,9 @@ Feature: Winner-only generation pipeline with a disciplined script engine
     When Whn.Celeris.run/1 executes against each
     Then the fenced reply parses via brace-slice extraction and the garbage reply yields the canned fallback without raising
 
+  # SUPERSEDED 2026-09-02: the wordless-sound clause became the single-speaker
+  # English dialogue rule (one short line per clip, wordless-expressive otherwise)
+  # per the direction on issue #7; the hygiene and suffix halves still hold.
   @req:CEL-03 @plan:VI @wave:3
   Scenario: Prompt discipline is baked in
     Given the Celeris system prompt and video-prompt builder

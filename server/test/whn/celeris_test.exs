@@ -144,18 +144,19 @@ defmodule Whn.CelerisTest do
     assert {:ok, :fallback, _result} = Celeris.run(@ctx)
   end
 
-  # CEL-03
-  test "system prompt carries the final-frame hygiene and wordless-sound rules" do
+  # CEL-03 (sound half superseded: single-speaker English dialogue rule, issue #7)
+  test "system prompt carries the final-frame hygiene and single-speaker dialogue rules" do
     system = Prompts.system_prompt()
 
     assert system =~ "FINAL FRAME HYGIENE"
     assert system =~ "readable"
+    assert system =~ "ONE character speaks"
+    assert system =~ "English line"
     assert system =~ "wordless"
     assert system =~ "in English"
     assert system =~ "2D cartoon"
     assert Whn.Prompts.vertical_suffix() =~ "2D cartoon"
-    assert Whn.Prompts.vertical_suffix() =~ "English"
-    assert system =~ "no spoken dialogue"
+    assert Whn.Prompts.vertical_suffix() =~ "single on-screen speaker"
     assert system =~ "Return ONLY compact JSON, no markdown fences, exactly this shape:"
   end
 
