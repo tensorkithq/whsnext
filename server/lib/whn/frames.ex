@@ -42,8 +42,19 @@ defmodule Whn.Frames do
     end
   end
 
+  # The AAC track can outlast the video stream, and -sseof measures from
+  # container duration — an overhang > ~0.25s seeks past the last video
+  # frame ("Nothing was written into output file"). Retry once from -1s,
+  # still inside the clip's final second; a second failure propagates.
   defp extract(clip_path, out_path) do
-    args = ["-y", "-sseof", "-0.25", "-i", clip_path, "-frames:v", "1", "-q:v", "3", out_path]
+    case run_ffmpeg(clip_path, out_path, "-0.25") do
+      {:error, {:ffmpeg, _exit_code, _output}} -> run_ffmpeg(clip_path, out_path, "-1")
+      ok -> ok
+    end
+  end
+
+  defp run_ffmpeg(clip_path, out_path, sseof) do
+    args = ["-y", "-sseof", sseof, "-i", clip_path, "-frames:v", "1", "-q:v", "3", out_path]
 
     case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
       {_output, 0} -> :ok
