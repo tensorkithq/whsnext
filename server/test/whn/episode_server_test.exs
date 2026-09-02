@@ -68,6 +68,9 @@ defmodule Whn.EpisodeServerTest do
     assert [{:start_cycle, ctx}] = Whn.PipelineStub.calls()
     assert ctx.winning_choice == "Hide the alert"
     assert ctx.beat == 1
+    # EL-01: a canonized lock bumps the server-owned level by exactly one
+    assert ctx.absurdity_level == 1
+    assert :sys.get_state(pid).absurdity_level == 1
 
     send(pid, {:timeline, :vote_close})
     assert_receive %Broadcast{event: "vote_closed", payload: %{}}
@@ -139,6 +142,8 @@ defmodule Whn.EpisodeServerTest do
     state = :sys.get_state(pid)
     assert state.vote == nil
     assert state.beat == 0
+    # EL-02: a below-quorum close never bumps the level
+    assert state.absurdity_level == 0
     assert state.next_choices == ["Confront the boss", "Hide the alert", "Call Mama"]
   end
 
@@ -165,6 +170,8 @@ defmodule Whn.EpisodeServerTest do
     _ = :sys.get_state(pid)
     assert [{:start_cycle, ctx}] = Whn.PipelineStub.calls()
     assert ctx.winning_choice == "Confront the boss"
+    # EL-02: one lock happened across the revote round-trip, not two
+    assert ctx.absurdity_level == 1
   end
 
   test "revote with zero viewers reschedules instead of opening" do
@@ -178,6 +185,27 @@ defmodule Whn.EpisodeServerTest do
     send(pid, {:timeline, :revote})
     _ = :sys.get_state(pid)
     refute_receive %Broadcast{event: "vote_open"}
+  end
+
+  # EL-03
+  test "script engine cannot clobber the level: story_state_updates key is ignored" do
+    pid = start_episode()
+
+    celeris = Map.put(@celeris, :story_state_updates, %{"absurdity_level" => 99})
+    send(pid, {:pipeline, 0, {:celeris, celeris}})
+    send(pid, {:timeline, :vote_open})
+    _ = :sys.get_state(pid)
+
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a1", 1)
+    {:ok, _} = Whn.EpisodeServer.vote(pid, "a2", 1)
+    send(pid, {:timeline, :vote_lock})
+    _ = :sys.get_state(pid)
+
+    # the model's value lands in story_state (merged, unread) but never
+    # becomes the level: the ctx field is server-owned
+    assert [{:start_cycle, ctx}] = Whn.PipelineStub.calls()
+    assert ctx.absurdity_level == 1
+    assert :sys.get_state(pid).absurdity_level == 1
   end
 
   # EP-06
