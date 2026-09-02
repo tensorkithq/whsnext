@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Phase, Playback } from "../lib/types";
 import { SEGMENT_SECONDS } from "../lib/types";
+import { playhead } from "../lib/playhead";
 
 const SEGMENT_MS = SEGMENT_SECONDS * 1000;
 
@@ -65,11 +66,24 @@ export function Stage({
     if (!url || !el) return;
     el.src = fragmentSrc(url, offsetSec);
     setSegIdx(idx);
+    playhead.kind = playback.kind;
+    playhead.beat = playback.beat;
+    playhead.seconds = idx * SEGMENT_SECONDS + offsetSec;
     if (startedRef.current) {
       el.muted = false;
       el.play().catch(() => {});
     }
   }, [playback, skewMs]);
+
+  // Report the true visual position; overlays gate on this, never on the
+  // server clock alone (buffering makes the picture lag the clock).
+  const handleTime = (idx: 0 | 1) => {
+    const el = players[idx].current;
+    if (idx !== activeRef.current || !el || !playback) return;
+    playhead.kind = playback.kind;
+    playhead.beat = playback.beat;
+    playhead.seconds = segIdx * SEGMENT_SECONDS + el.currentTime;
+  };
 
   // Warm the standby with whatever comes next: the following segment of
   // this clip, or the preloaded next clip once the server announces it.
@@ -145,6 +159,7 @@ export function Stage({
         playsInline
         preload="auto"
         onEnded={() => handleEnded(0)}
+        onTimeUpdate={() => handleTime(0)}
       />
       <video
         ref={playerB}
@@ -153,6 +168,7 @@ export function Stage({
         playsInline
         preload="auto"
         onEnded={() => handleEnded(1)}
+        onTimeUpdate={() => handleTime(1)}
       />
       <div className="scrim scrim-top" />
       <div className="scrim scrim-bottom" />

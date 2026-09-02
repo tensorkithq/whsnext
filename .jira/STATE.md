@@ -1,8 +1,8 @@
 ---
 project: whn
 created: 2026-08-31
-last_activity: 2026-08-31
-active_sprint: 2026-08-31-live-episode-mvp
+last_activity: 2026-09-02
+active_sprint: 2026-09-02-frame-chained-continuity
 ---
 
 # State
@@ -15,6 +15,7 @@ Project-wide state for the `jira` workflow. The orchestrator commands keep this 
 
 | Slug | Status | Goal | Outcome |
 |------|--------|------|---------|
+| 2026-09-02-frame-chained-continuity | done | Scene-end frame seeds the bridge, bridge-end seeds the next scene; winner reveal delay; EP-08 hygiene | PASS (11/11 outcomes, 9/9 predicates, 49 tests) — rides [PR #6](https://github.com/tensorkithq/whn/pull/6) |
 | 2026-08-31-live-episode-mvp | done | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | PASS (8/8 outcomes, 33/33 predicates, 37 tests) — [PR #6](https://github.com/tensorkithq/whn/pull/6) |
 
 Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `blocked`, `abandoned`.
@@ -42,11 +43,18 @@ Status legend: `researching`, `planned`, `executing`, `verifying`, `done`, `bloc
 - D-15 failures: one retry per fal stage (same seed); Celeris retry once then canned fallback; votes never reopen
 - D-16 secrets: FAL_KEY in gitignored .env, flake shellHook sources it; .env.example committed
 
+2026-09-02, sprint 2026-09-02-frame-chained-continuity (full text in its CONTEXT.md):
+
+- Frame chaining: pipeline extracts the FINAL segment's frame (best-effort, -sseof -1 overhang retry) and emits one new pinned message {:last_frame, url}; server stores it latest-wins via a beat-guard-exempt head; ctx refreshed at pending_cycle dispatch; trailing extraction failure never holds the episode (t2v fallback as before)
+- Winner reveal: vote_closed scheduled reveal_ms (2_500 default, timings-injectable) after vote_locked, guarded on locked: true; below-quorum close stays immediate
+- EP-08 superseded by REV-03 in this sprint's features/ (comment-only annotation on the old scenario; tags/text untouched)
+- Deferred: end_image_url keyframe bridges, monotonic frame check, beat-meta frame persistence
+
 ## Blockers
 
 <!-- Active blockers across all sprints. Resolved blockers move to the Decisions log. -->
 
-None active. Two verifier follow-ups carried on PR #6 (not blockers): cross-beat frame chaining is prompt-only in production (last_frame_url never carried forward → bridges take the t2v branch); winner-reveal styling unreachable (vote_closed broadcast immediately after vote_locked).
+None active. The two PR #6 follow-ups (frame chaining production-dead; winner reveal unreachable) were resolved by sprint 2026-09-02-frame-chained-continuity. Remaining accepted risk: the frame chain is mock-verified; live-fal visual continuity awaits a production smoke.
 
 ## Notes
 

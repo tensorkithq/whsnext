@@ -8,6 +8,10 @@ defmodule Whn.Pipeline do
   from the premise. Every stage reports to `dest` as a `{:pipeline, beat,
   message}` send; the destination applies its own stale-beat guard.
 
+  After the final segment is delivered, the cycle extracts that segment's
+  last frame — best-effort — and reports it as `{:last_frame, url}` so the
+  next cycle's bridge can animate from the scene's end.
+
   Each generation stage gets one retry with identical arguments — the seed
   makes the request idempotent — before the cycle stops with an error
   message. Per-stage timeouts are 3x the wall-clock measured in the fal
@@ -24,6 +28,8 @@ defmodule Whn.Pipeline do
   @callback start_cycle(dest :: pid(), ctx :: map()) :: {:ok, pid()} | {:error, term()}
 
   @behaviour __MODULE__
+
+  require Logger
 
   # 3x measured wall-clock: flux 12.1s, i2v 4.9s / t2v 5.3s, frame trip 2.9s.
   @flux_timeout 36_500
@@ -54,6 +60,7 @@ defmodule Whn.Pipeline do
         run_segments(dest, ctx.beat, result.next_scene.video_prompt, frame_url, seed)
       end
 
+    chain_frame(outcome, dest, ctx.beat)
     report(outcome, dest, ctx.beat)
   end
 
@@ -75,6 +82,7 @@ defmodule Whn.Pipeline do
         run_segments(dest, ctx.beat, result.next_scene.video_prompt, image_url, seed)
       end
 
+    chain_frame(outcome, dest, ctx.beat)
     report(outcome, dest, ctx.beat)
   end
 
@@ -173,11 +181,13 @@ defmodule Whn.Pipeline do
       timeout: :infinity
     )
     |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {{:ok, result}, idx}, :ok ->
+    |> Enum.reduce_while({:ok, nil}, fn {{:ok, result}, idx}, {:ok, _prev} ->
       case result do
         {:ok, %{url: url}} ->
           notify(dest, beat, {:segment_ready, idx, url})
-          {:cont, :ok}
+          # consumed in order, so the final accumulator is segment 2's url —
+          # chain_frame extracts the scene-end frame from it, same as chained
+          {:cont, {:ok, url}}
 
         error ->
           {:halt, error}
@@ -185,8 +195,12 @@ defmodule Whn.Pipeline do
     end)
   end
 
+  # The one allowed dialogue line is spoken once per scene: segments after
+  # the first drop any quoted speech from the shared prompt (both engines).
+  defp segment_prompt(video_prompt, 0), do: "#{video_prompt} Continuation, part 1 of 3."
+
   defp segment_prompt(video_prompt, idx) do
-    "#{video_prompt} Continuation, part #{idx + 1} of 3."
+    "#{Whn.Prompts.strip_dialogue(video_prompt)} Continuation, part #{idx + 1} of 3."
   end
 
   defp i2v(prompt, image_url, seed, duration \\ 10) do
@@ -205,13 +219,30 @@ defmodule Whn.Pipeline do
     end
   end
 
-  # the last segment seeds nothing; skip the extraction round trip
-  defp next_frame(2, _url), do: {:ok, nil}
+  # the final segment's own extraction is skipped inside the loop, but its
+  # url flows out so the cycle can chain its end frame after delivery
+  defp next_frame(2, url), do: {:ok, url}
   defp next_frame(_idx, url), do: extract_frame(url)
 
   defp extract_frame(video_url) do
     with_retry(:frame, @frame_timeout, fn -> Whn.Frames.last_frame(video_url) end)
   end
+
+  # Scene-end chaining is best-effort: the scene is already delivered when
+  # this runs, so a failure logs and skips — it must never surface as
+  # {:error, :frame, _} and flip a playable episode to hold. Single attempt,
+  # no retry: the next bridge falls back to t2v exactly as before.
+  defp chain_frame({:ok, last_url}, dest, beat) when is_binary(last_url) do
+    case Whn.Frames.last_frame(last_url) do
+      {:ok, frame_url} ->
+        notify(dest, beat, {:last_frame, frame_url})
+
+      {:error, reason} ->
+        Logger.warning("scene-end frame extraction failed for beat #{beat}: #{inspect(reason)}")
+    end
+  end
+
+  defp chain_frame(_error_or_nil, _dest, _beat), do: :ok
 
   defp report({:error, stage, reason}, dest, beat) do
     notify(dest, beat, {:error, stage, reason})

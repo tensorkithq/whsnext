@@ -9,6 +9,11 @@ defmodule Whn.Celeris do
   depth. An invalid or failed reply is retried once, then replaced by a
   canned fallback — this function never raises on model output and a vote
   is never reopened because of it.
+
+  The backend is chosen per call by the SCRIPT_ENGINE env var: "celeris"
+  (default) posts to the Celeris API; "gemini" runs Gemini Flash Lite
+  through fal's OpenRouter route (no strict schema there — the lenient
+  parse carries it). Same prompts, same parsing, swappable for A/B runs.
   """
 
   alias Whn.Prompts
@@ -50,6 +55,25 @@ defmodule Whn.Celeris do
   ## HTTP
 
   defp post(ctx) do
+    case System.get_env("SCRIPT_ENGINE", "celeris") do
+      "gemini" -> post_gemini(ctx)
+      _ -> post_celeris(ctx)
+    end
+  end
+
+  defp post_gemini(ctx) do
+    case Whn.Fal.vision(Prompts.user_prompt(ctx),
+           model: "google/gemini-2.5-flash-lite",
+           system_prompt: Prompts.system_prompt(),
+           temperature: 0.6,
+           max_tokens: 700
+         ) do
+      {:ok, %{output: content}} when is_binary(content) -> {:ok, content}
+      _ -> :error
+    end
+  end
+
+  defp post_celeris(ctx) do
     config = Application.get_env(:whn, :celeris, [])
     url = Keyword.get(config, :url, @endpoint)
     key = System.fetch_env!(Keyword.get(config, :key_env, "CELERIS_KEY"))
@@ -213,8 +237,8 @@ defmodule Whn.Celeris do
 
   defp finalize(result) do
     result
-    |> update_in([:bridge, :video_prompt], &suffix/1)
-    |> update_in([:next_scene, :video_prompt], &suffix/1)
+    |> update_in([:bridge, :video_prompt], &(&1 |> Prompts.strip_dialogue() |> suffix()))
+    |> update_in([:next_scene, :video_prompt], &(&1 |> Prompts.clamp_dialogue() |> suffix()))
   end
 
   defp suffix(video_prompt), do: video_prompt <> " " <> Prompts.vertical_suffix()

@@ -75,6 +75,13 @@ defmodule WhnWeb.EpisodeChannelTest do
   test "votes after lock reply with reason locked", %{episode: episode} do
     open_vote(episode)
     {_reply, socket} = join!("anon-9")
+    {_reply, socket2} = join!("anon-10")
+
+    # quorum (two distinct voters) so the lock canonizes
+    ref = push(socket, "vote", %{"option_idx" => 1})
+    assert_reply ref, :ok, %{}
+    ref = push(socket2, "vote", %{"option_idx" => 2})
+    assert_reply ref, :ok, %{}
 
     send(episode, {:timeline, :vote_lock})
     _ = :sys.get_state(episode)
