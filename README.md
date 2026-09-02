@@ -1,3 +1,125 @@
+# whn — realtime audience-controlled stories
+
+A live story where everybody watching controls what happens next. One protagonist, one shared timeline: the audience votes, the winning choice becomes canon, and the next scene is generated on the fly. Think TikTok-style live vertical video crossed with Bandersnatch-style branching narrative, driven by realtime audience voting.
+
+The stack: an Elixir/Phoenix server that runs episode processes, ingests votes over websockets, and orchestrates script generation (Celeris) and video generation (fal.ai); a React SPA in `web/` (TanStack Start) for the viewer experience; Postgres for persistence.
+
+The launch property is **Lagos Wahala**, an interactive Nigerian-life comedy — see [PLOT.md](PLOT.md) for the plot and marketing brief. The technical brief lives further down in this document.
+
+## Running the app
+
+### Prerequisites
+
+- **Nix** with flakes enabled. Everything else — Elixir, Node, Postgres, ffmpeg — comes from the devshell.
+- **tmux** on the host. `app-start` runs the server inside a tmux session, and tmux is not part of the devshell.
+- **API keys** for [fal.ai](https://fal.ai) (video generation) and Celeris (script generation). The server needs real keys to generate scenes.
+
+Make sure `nix` itself is on your shell's `PATH` (it usually is; on some setups it lives in `/nix/var/nix/profiles/default/bin`). `app-start` resolves the `nix` binary from the environment and exits silently if it can't find it — see Troubleshooting.
+
+### 1. Enter the devshell
+
+```sh
+nix develop
+```
+
+This puts Elixir, Node, Postgres, and the app lifecycle commands (`pg-start`, `app-start`, `logs`, …) on your `PATH`, and points Postgres at a local data directory (`.nix-postgres/`, port 57432).
+
+### 2. Configure secrets
+
+```sh
+cp .env.example .env
+```
+
+Fill in `FAL_KEY` and `CELERIS_KEY`. The file is gitignored and sourced automatically every time the devshell starts (including the shell `app-start` launches for the server).
+
+### 3. First-time setup
+
+```sh
+pg-start
+(cd server && mix setup)   # deps, create DB, migrate, seed
+```
+
+Only needed once (or after a schema change).
+
+### 4. Start the server
+
+```sh
+app-start
+```
+
+This starts Postgres if it isn't running, launches Phoenix in a tmux session named `whn-live`, waits for it to listen on `127.0.0.1:57400`, and then starts the seed episode (Lagos Wahala — "Salary Just Entered") in the server console.
+
+Phoenix serves only the API and websocket — visiting `http://127.0.0.1:57400/` returns a 404 by design. The UI comes from the web client.
+
+### 5. Run the web client
+
+```sh
+cd web
+npm install
+npm run dev
+```
+
+Open the URL Vite prints (`http://localhost:5173` by default). The dev server proxies `/api` and `/socket` to the Phoenix server on 57400.
+
+For a production build: `npm run build`, then serve the output separately (`npm run preview` to check it locally).
+
+### 6. Watch and vote
+
+- Generation begins when the **first viewer** opens the web client — until then the episode idles and nothing is spent.
+- Vote cycles need **at least 2 voters**; open two browser tabs if you're testing alone.
+- Each 30-second scene cycle costs real money on fal.ai (roughly $2 at current pricing), so stop the server when you're done watching.
+
+To watch the server itself:
+
+```sh
+tmux attach -t whn-live    # the live IEx console (detach with Ctrl-b d)
+logs                       # tail Phoenix + Postgres logs (nix develop -c logs from outside the shell)
+```
+
+### 7. Stop
+
+```sh
+app-stop    # kills the tmux session and the BEAM on 57400
+pg-stop     # shuts Postgres down
+```
+
+### Command reference
+
+All defined in `flake.nix`, available inside `nix develop`:
+
+| Command | What it does |
+| --- | --- |
+| `pg-start` | Init (first run) and start Postgres on `127.0.0.1:57432`, data in `.nix-postgres/` |
+| `pg-stop` | Stop Postgres |
+| `app-start` | Start Postgres if needed, launch Phoenix in tmux session `whn-live`, start the seed episode |
+| `app-stop` | Kill the tmux session and any process listening on 57400 |
+| `app-restart` | `app-stop` then `app-start` |
+| `logs` | `tail -F` the Phoenix and Postgres logs |
+
+### Running the server manually
+
+If you'd rather skip tmux and drive the episode yourself:
+
+```sh
+pg-start
+(cd server && iex -S mix phx.server)
+```
+
+```elixir
+Whn.Episodes.start!(Whn.Seed.salary_just_entered())
+```
+
+`mix test` talks to the same Postgres, so keep `pg-start` running for the test suite too.
+
+### Troubleshooting
+
+- **`app-start` exits immediately with no output.** It resolves the `nix` binary with `command -v nix` under `set -e`, so if `nix` isn't on the `PATH` of the shell you launched `nix develop` from, the script dies before printing anything. Add nix's bin directory (often `/nix/var/nix/profiles/default/bin`) to your `PATH` and retry.
+- **`http://127.0.0.1:57400/` returns 404.** Expected — the Phoenix server has no pages, only `/api` and `/socket`. Use the web client.
+- **`app-start` reports "session died".** Inspect the crash with `tmux capture-pane -t whn-live -p` or `logs`.
+- **Scenes never generate.** Check that `.env` has real `FAL_KEY` and `CELERIS_KEY` values, that at least one viewer has the web client open, and that two voters are present for vote cycles.
+
+---
+
 # Technical Brief — Realtime Interactive Story Platform
 
 ## 1. Product Objective
@@ -434,41 +556,3 @@ V1 succeeds technically when audience can watch one uninterrupted episode where:
 **video → vote → canonical decision → generated continuation**
 
 repeats reliably without viewer experiencing generation as an explicit loading state.
-
----
-
-## Development
-
-Everything runs inside the Nix devshell (Elixir, Node, ffmpeg, Postgres).
-
-```sh
-nix develop            # enter the devshell
-pg-start               # Postgres on 127.0.0.1:57432 (data in .nix-postgres/)
-cp .env.example .env   # then fill in FAL_KEY (gitignored, auto-sourced by the shell)
-(cd server && mix setup)         # deps, create DB, migrate, seed
-(cd server && mix phx.server)    # API on 127.0.0.1:57400
-(cd web && npm install && npm run dev)   # UI on the Vite port, proxies /socket and /api to 57400
-```
-
-Notes:
-
-- Postgres listens on 57432, not 5432; the port is pinned in the server config, so no env vars needed.
-- `mix test` talks to the same Postgres — keep `pg-start` running.
-- `pg-stop` shuts Postgres down when you're done.
-
-### Start the live episode
-
-With Postgres up and both `FAL_KEY` and `CELERIS_KEY` filled in `.env`, boot an
-interactive server and start the seed episode (Lagos Wahala — "Salary Just Entered"):
-
-```sh
-(cd server && iex -S mix phx.server)
-```
-
-```elixir
-Whn.Episodes.start!(Whn.Seed.salary_just_entered())
-```
-
-Generation waits until at least one viewer has the web client open, then calls
-fal for real: each 30-second scene cycle costs about $2.00 at post-promo
-pricing. Stop the server when you're done watching.
