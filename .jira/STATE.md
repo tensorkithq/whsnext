@@ -15,7 +15,7 @@ Project-wide state for the `jira` workflow. The orchestrator commands keep this 
 
 | Slug | Status | Goal | Outcome |
 |------|--------|------|---------|
-| 2026-09-02-escalation-engine-pot-grows | planned | Server-owned absurdity ladder: `absurdity_level` +1 per canonized vote lock, L0–L5 fragments into script + video prompts, votes pick escalation form ([#8](https://github.com/tensorkithq/whn/issues/8)) | — |
+| 2026-09-02-escalation-engine-pot-grows | executing | Server-owned absurdity ladder: `absurdity_level` +1 per canonized vote lock, L0–L5 fragments into script + video prompts, votes pick escalation form ([#8](https://github.com/tensorkithq/whn/issues/8)) | — |
 | 2026-09-02-frame-chained-continuity | done | Scene-end frame seeds the bridge, bridge-end seeds the next scene; winner reveal delay; EP-08 hygiene | PASS (11/11 outcomes, 9/9 predicates, 49 tests) — rides [PR #6](https://github.com/tensorkithq/whn/pull/6) |
 | 2026-08-31-live-episode-mvp | done | One live episode: video → 10s vote → winner-only generated continuation, TikTok-style mobile client | PASS (8/8 outcomes, 33/33 predicates, 37 tests) — [PR #6](https://github.com/tensorkithq/whn/pull/6) |
 
