@@ -144,21 +144,19 @@ defmodule Whn.CelerisTest do
     assert {:ok, :fallback, _result} = Celeris.run(@ctx)
   end
 
-  # CEL-03 (sound half superseded: single-speaker English dialogue rule, issue #7)
-  test "system prompt carries the final-frame hygiene and single-speaker dialogue rules" do
+  # CEL-03
+  test "system prompt carries the final-frame hygiene and wordless-audio rules" do
     system = Prompts.system_prompt()
 
     assert system =~ "FINAL FRAME HYGIENE"
     assert system =~ "readable"
-    assert system =~ "ONE character speaks"
-    assert system =~ "English line"
-    assert system =~ "MID-SHOT"
-    assert system =~ "bridge is ALWAYS dialogue-free"
     assert system =~ "wordless"
+    assert system =~ "no spoken dialogue ever, in any language"
+    assert system =~ "No quoted dialogue"
     assert system =~ "in English"
     assert system =~ "2D cartoon"
     assert Whn.Prompts.vertical_suffix() =~ "2D cartoon"
-    assert Whn.Prompts.vertical_suffix() =~ "single on-screen speaker"
+    assert Whn.Prompts.vertical_suffix() =~ "wordless"
     assert system =~ "Return ONLY compact JSON, no markdown fences, exactly this shape:"
   end
 
@@ -170,14 +168,12 @@ defmodule Whn.CelerisTest do
     assert String.ends_with?(result.next_scene.video_prompt, Prompts.vertical_suffix())
   end
 
-  test "dialogue is capped mechanically: 12 words, first line only, none in bridges" do
-    long_line = Enum.map_join(1..25, " ", &"word#{&1}")
-
+  test "all quoted dialogue is stripped from both prompts" do
     raw =
       put_in(
         @valid,
         ["next_scene", "video_prompt"],
-        ~s(Tunde pleads. Tunde says: "#{long_line}" The landlord grunts. Landlord says: "extra line that must go" He waits.)
+        ~s(Tunde pleads. Tunde says: "I am not running anywhere, sir." The landlord grunts. Landlord says: "extra line that must go" He waits.)
       )
       |> put_in(
         ["bridge", "video_prompt"],
@@ -188,13 +184,15 @@ defmodule Whn.CelerisTest do
     assert {:ok, result} = Celeris.run(@ctx)
 
     scene = result.next_scene.video_prompt
-    [only_quote] = Regex.scan(~r/"[^"]+"/, scene) |> List.flatten()
-    assert length(String.split(String.trim(only_quote, "\""))) == 12
+    refute scene =~ "\""
+    refute scene =~ "not running anywhere"
     refute scene =~ "extra line"
-    assert scene =~ "The speaker then falls silent."
+    assert scene =~ "Tunde pleads."
+    assert scene =~ "He waits."
 
     refute result.bridge.video_prompt =~ "\""
     refute result.bridge.video_prompt =~ "never survive"
+    assert result.bridge.video_prompt =~ "He hails a bus."
   end
 
   test "SCRIPT_ENGINE=gemini routes through the fal vision route with the same prompts" do

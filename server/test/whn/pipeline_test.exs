@@ -189,7 +189,7 @@ defmodule Whn.PipelineTest do
     end
   end
 
-  test "the dialogue line is spoken once per scene: segments after the first drop it" do
+  test "no segment prompt carries quoted dialogue, even when the model writes some" do
     spoken =
       put_in(
         @celeris_reply,
@@ -206,12 +206,17 @@ defmodule Whn.PipelineTest do
     {:ok, _pid} = Whn.Pipeline.start_cycle(self(), ctx(%{last_frame_url: "mock://prev.jpg"}))
     assert_receive {:pipeline, 1, {:segment_ready, 2, _url}}, 10_000
 
-    [_bridge | segments] = for {:i2v, args} <- Whn.FalMock.calls(), do: args
+    [[bridge, _, _] | segments] = for {:i2v, args} <- Whn.FalMock.calls(), do: args
     [[seg0, _, _], [seg1, _, _], [seg2, _, _]] = segments
 
-    assert seg0 =~ ~s("I am not running anywhere, sir.")
-    refute seg1 =~ "\""
-    refute seg2 =~ "\""
+    refute bridge =~ "\""
+
+    for seg <- [seg0, seg1, seg2] do
+      refute seg =~ "\""
+      refute seg =~ "not running anywhere"
+      assert seg =~ "The landlord counts cash."
+    end
+
     assert seg1 =~ "Continuation, part 2 of 3."
   end
 

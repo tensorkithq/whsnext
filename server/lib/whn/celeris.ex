@@ -238,7 +238,7 @@ defmodule Whn.Celeris do
   defp finalize(result) do
     result
     |> update_in([:bridge, :video_prompt], &(&1 |> Prompts.strip_dialogue() |> suffix()))
-    |> update_in([:next_scene, :video_prompt], &(&1 |> Prompts.clamp_dialogue() |> suffix()))
+    |> update_in([:next_scene, :video_prompt], &(&1 |> Prompts.strip_dialogue() |> suffix()))
   end
 
   defp suffix(video_prompt), do: video_prompt <> " " <> Prompts.vertical_suffix()

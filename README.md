@@ -439,6 +439,8 @@ repeats reliably without viewer experiencing generation as an explicit loading s
 
 ## Development
 
+This branch (`gen/wordless`) is the wordless-audio variant: no character ever speaks — expressive wordless voices over ambient audio and score.
+
 Everything runs inside the Nix devshell (Elixir, Node, ffmpeg, Postgres).
 
 ```sh
