@@ -214,6 +214,23 @@ defmodule Whn.PipelineTest do
              for({:i2v, args} <- Whn.FalMock.calls(), do: args)
   end
 
+  # FC-01 (opening) — extraction hooks into run_segments' shared path, so the
+  # opening chains too and the very first cycle's bridge can animate from it
+  test "opening emits its scene-end frame so the first cycle's bridge can chain" do
+    {:ok, _pid} = Whn.Pipeline.start_opening(self(), ctx(%{beat: 0, winning_choice: nil}))
+
+    assert_receive {:pipeline, 0, {:celeris, _result}}, 10_000
+
+    for idx <- 0..2 do
+      assert_receive {:pipeline, 0, {:segment_ready, ^idx, _url}}, 10_000
+    end
+
+    assert_receive {:pipeline, 0, {:last_frame, frame_url}}, 10_000
+    assert frame_url =~ "mock://frame-"
+
+    refute_receive {:pipeline, _beat, {:error, _stage, _reason}}, 100
+  end
+
   # CEL-06
   test "a failed segment retries once with identical args and never reports an error" do
     Whn.FalMock.fail_once(:i2v)
