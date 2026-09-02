@@ -45,7 +45,11 @@ defmodule Whn.IntegrationTest do
 
     on_exit(fn -> File.rm(fixture) end)
 
-    {:ok, mock} = Whn.FalMock.start_link(video: fixture)
+    # Unlinked: a linked mock dies with the test process, before on_exit —
+    # but the cycle task's trailing frame extraction can still be running
+    # then. drain_tasks (registered per test, so it runs first) waits the
+    # task out against a live mock; this stop follows.
+    {:ok, mock} = Whn.FalMock.start(video: fixture)
     on_exit(fn -> if Process.alive?(mock), do: Agent.stop(mock) end)
 
     previous_fal = Application.get_env(:whn, :fal_impl)
