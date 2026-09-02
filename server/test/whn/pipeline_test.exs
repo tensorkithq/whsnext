@@ -281,4 +281,68 @@ defmodule Whn.PipelineTest do
     assert [first_attempt, retry | _rest] = i2v_calls
     assert first_attempt == retry
   end
+
+  # EL-10
+  test "emitted video prompts carry the level's fragment at every ladder level" do
+    for level <- 0..5 do
+      for prompt <- cycle_i2v_prompts(level) do
+        assert prompt =~ Whn.Prompts.escalation_fragment(level)
+      end
+    end
+
+    # levels past the ladder top clamp: a run at 7 emits the L5 fragment
+    for prompt <- cycle_i2v_prompts(7) do
+      assert prompt =~ Whn.Prompts.escalation_fragment(5)
+    end
+  end
+
+  # EL-11
+  test "the opening still is the L0 anchor" do
+    {:ok, _pid} =
+      Whn.Pipeline.start_opening(
+        self(),
+        ctx(%{beat: 0, winning_choice: nil, last_frame_url: nil, absurdity_level: 0})
+      )
+
+    assert_receive {:pipeline, 0, {:celeris, _result}}, 10_000
+
+    for idx <- 0..2 do
+      assert_receive {:pipeline, 0, {:segment_ready, ^idx, _url}}, 10_000
+    end
+
+    assert_receive {:pipeline, 0, {:last_frame, _url}}, 10_000
+
+    assert [{:flux, [flux_prompt, _opts]}] =
+             Enum.filter(Whn.FalMock.calls(), &match?({:flux, _}, &1))
+
+    assert flux_prompt =~ "Escalation: " <> Whn.Prompts.escalation_fragment(0)
+    assert flux_prompt =~ Whn.Prompts.vertical_suffix()
+  end
+
+  # Runs one full cycle at the level, drains its pinned message sequence
+  # through the trailing {:last_frame, _}, and returns only this run's i2v
+  # prompts (bridge + 3 segments) — sliced off the mock's cumulative log.
+  defp cycle_i2v_prompts(level) do
+    seen = length(Whn.FalMock.calls())
+
+    {:ok, _pid} =
+      Whn.Pipeline.start_cycle(
+        self(),
+        ctx(%{absurdity_level: level, last_frame_url: "mock://prev.jpg"})
+      )
+
+    assert_receive {:pipeline, 1, {:celeris, _result}}, 10_000
+    assert_receive {:pipeline, 1, {:bridge_ready, _bridge_url}}, 10_000
+
+    for idx <- 0..2 do
+      assert_receive {:pipeline, 1, {:segment_ready, ^idx, _url}}, 10_000
+    end
+
+    assert_receive {:pipeline, 1, {:last_frame, _frame_url}}, 10_000
+
+    run_calls = Enum.drop(Whn.FalMock.calls(), seen)
+    prompts = for {:i2v, [prompt, _image, _opts]} <- run_calls, do: prompt
+    assert length(prompts) == 4
+    prompts
+  end
 end
