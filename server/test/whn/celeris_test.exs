@@ -286,6 +286,8 @@ defmodule Whn.CelerisTest do
 
     for vp <- [result.bridge.video_prompt, result.next_scene.video_prompt] do
       assert vp =~ escalation
+      # exactly one Escalation line per prompt — the append must never stack
+      assert length(String.split(vp, "\nEscalation: ")) == 2
       assert String.ends_with?(vp, Prompts.vertical_suffix())
     end
   end
