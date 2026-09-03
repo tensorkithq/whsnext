@@ -4,7 +4,7 @@ A live story where everybody watching controls what happens next. One protagonis
 
 The stack: an Elixir/Phoenix server that runs episode processes, ingests votes over websockets, and orchestrates script generation (Celeris) and video generation (fal.ai); a React SPA in `web/` (TanStack Start) for the viewer experience; Postgres for persistence.
 
-The launch property is **Lagos Wahala**, an interactive Nigerian-life comedy — see [PLOT.md](PLOT.md) for the plot and marketing brief. The technical brief lives further down in this document.
+The launch property is **Lagos Wahala**, an interactive Nigerian-life comedy — see [PLOT.md](docs/PLOT.md) for the plot and marketing brief. The technical brief lives further down in this document.
 
 ## Running the app
 
