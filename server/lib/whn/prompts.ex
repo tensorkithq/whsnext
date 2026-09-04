@@ -60,6 +60,10 @@ defmodule Whn.Prompts do
   @quoted ~r/"[^"]+"/
   @dialogue_guard "Dialogue (the only spoken words in the clip):"
 
+  # Any line the script engine labeled as dialogue, whatever the wording —
+  # the canonical guard, "Dialogue (only):", plain "Dialogue:".
+  @dialogue_label ~r/^\s*Dialogue[^:\n]*:\s*/m
+
   @doc """
   Keeps only the first quoted dialogue line, truncated to the word cap;
   any further quoted spans are removed, and the line is guaranteed to sit
@@ -81,12 +85,17 @@ defmodule Whn.Prompts do
     end
   end
 
-  # Leaves an authored Dialogue block alone; when the script engine wrote
-  # the line inline instead, injects the label before the attribution.
+  # Leaves an authored Dialogue block alone; normalizes a model-invented
+  # label variant ("Dialogue (only):") to the canonical guard instead of
+  # stacking a second label; when the script engine wrote the line inline
+  # with no label at all, injects the guard before the attribution.
   defp ensure_guard(head) do
     cond do
       String.contains?(head, @dialogue_guard) ->
         head
+
+      head =~ @dialogue_label ->
+        Regex.replace(@dialogue_label, head, @dialogue_guard <> " ")
 
       match = Regex.run(~r/\A(.*[.!?…])([^.!?…]*)\z/su, head) ->
         [_, pre, attribution] = match
@@ -98,16 +107,21 @@ defmodule Whn.Prompts do
   end
 
   @doc """
-  Removes every quoted dialogue span and any Dialogue guard label left
-  behind. Used on bridge video_prompts (always dialogue-free) and on scene
-  segments after the first, so the one allowed line is spoken once per
-  scene, not once per segment.
+  Drops every dialogue-labeled line wholesale — label, speaker attribution,
+  and quote — and removes quoted spans the model left inline in other lines.
+  Used on bridge video_prompts (always dialogue-free) and on scene segments
+  after the first, so the one allowed line is spoken once per scene, not
+  once per segment. Line-preserving: labeled sections (Camera, Environment,
+  Action, Escalation, Style) keep their own lines — removal residue must
+  never merge a dangling attribution into the line below it.
   """
   def strip_dialogue(prompt) do
     prompt
-    |> String.replace(@quoted, "")
-    |> String.replace(@dialogue_guard, "")
-    |> squeeze()
+    |> String.split("\n")
+    |> Enum.reject(&(&1 =~ @dialogue_label))
+    |> Enum.map_join("\n", &(&1 |> String.replace(@quoted, "") |> squeeze_line()))
+    |> String.replace(~r/\n{2,}/, "\n")
+    |> String.trim()
   end
 
   defp requote(quoted) do
@@ -116,8 +130,19 @@ defmodule Whn.Prompts do
     "\"" <> Enum.join(words, " ") <> "\""
   end
 
+  # Whitespace hygiene that never crosses a line boundary: collapsing runs
+  # that contain newlines is what merged stripped-dialogue residue into the
+  # Escalation line (2026-09-04 production smoke).
   defp squeeze(prompt) do
     prompt
+    |> String.split("\n")
+    |> Enum.map_join("\n", &squeeze_line/1)
+    |> String.replace(~r/\n{2,}/, "\n")
+    |> String.trim()
+  end
+
+  defp squeeze_line(line) do
+    line
     |> String.replace(~r/\s{2,}/, " ")
     |> String.replace(~r/\s+([.,;:!?])/, "\\1")
     |> String.trim()
