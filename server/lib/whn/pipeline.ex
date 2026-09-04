@@ -14,8 +14,9 @@ defmodule Whn.Pipeline do
 
   Each generation stage gets one retry with identical arguments — the seed
   makes the request idempotent — before the cycle stops with an error
-  message. Per-stage timeouts are 3x the wall-clock measured in the fal
-  timing spike.
+  message. Per-stage timeout defaults carry headroom for fal queue latency
+  on top of the measured wall-clock, and are overridable through the
+  `:pipeline_timeouts` app env (`%{flux: ms, video: ms, frame: ms}`).
   """
 
   @callback start_opening(dest :: pid(), ctx :: map()) :: {:ok, pid()} | {:error, term()}
@@ -25,10 +26,18 @@ defmodule Whn.Pipeline do
 
   require Logger
 
-  # 3x measured wall-clock: flux 12.1s, i2v 4.9s / t2v 5.3s, frame trip 2.9s.
-  @flux_timeout 36_500
-  @video_timeout 16_000
-  @frame_timeout 9_000
+  # Measured sync wall-clock: flux 12.1s, i2v 4.9s / t2v 5.3s, frame trip
+  # 2.9s. Video and frame budgets are sized well past 3x that: fal requests
+  # ride the queue endpoint, where observed i2v wall-clock spread from 3.5s
+  # to beyond 16s on identical calls — the old 16s budget, calibrated on
+  # sync submits, killed real segments as :timeout.
+  @default_timeouts %{flux: 36_500, video: 60_000, frame: 30_000}
+
+  defp timeout(stage) do
+    :whn
+    |> Application.get_env(:pipeline_timeouts, %{})
+    |> Map.get(stage, Map.fetch!(@default_timeouts, stage))
+  end
 
   @impl true
   def start_opening(dest, ctx) do
@@ -67,7 +76,7 @@ defmodule Whn.Pipeline do
 
     outcome =
       with {:ok, %{url: image_url}} <-
-             with_retry(:frame, @flux_timeout, fn ->
+             with_retry(:frame, timeout(:flux), fn ->
                Whn.Fal.flux(opening_prompt(ctx),
                  image_size: %{width: 720, height: 1280},
                  seed: ctx.seed
@@ -94,7 +103,7 @@ defmodule Whn.Pipeline do
   end
 
   defp bridge_clip(%{last_frame_url: nil}, prompt, seed) do
-    with_retry(:bridge, @video_timeout, fn ->
+    with_retry(:bridge, timeout(:video), fn ->
       Whn.Fal.t2v(prompt,
         duration: 10,
         resolution: "480P",
@@ -106,7 +115,7 @@ defmodule Whn.Pipeline do
   end
 
   defp bridge_clip(%{last_frame_url: frame_url}, prompt, seed) do
-    with_retry(:bridge, @video_timeout, fn -> i2v(prompt, frame_url, seed) end)
+    with_retry(:bridge, timeout(:video), fn -> i2v(prompt, frame_url, seed) end)
   end
 
   defp run_segments(dest, beat, video_prompt, frame_url, seed) do
@@ -117,7 +126,7 @@ defmodule Whn.Pipeline do
       prompt = "#{base} Continuation, part #{idx + 1} of 3."
 
       with {:ok, %{url: url}} <-
-             with_retry(:segment, @video_timeout, fn -> i2v(prompt, frame, seed) end),
+             with_retry(:segment, timeout(:video), fn -> i2v(prompt, frame, seed) end),
            :ok <- notify(dest, beat, {:segment_ready, idx, url}),
            {:ok, next_frame} <- next_frame(idx, url) do
         {:cont, {:ok, next_frame}}
@@ -142,7 +151,7 @@ defmodule Whn.Pipeline do
   defp next_frame(_idx, url), do: extract_frame(url)
 
   defp extract_frame(video_url) do
-    with_retry(:frame, @frame_timeout, fn -> Whn.Frames.last_frame(video_url) end)
+    with_retry(:frame, timeout(:frame), fn -> Whn.Frames.last_frame(video_url) end)
   end
 
   # Scene-end chaining is best-effort: the scene is already delivered when

@@ -48,7 +48,7 @@ defmodule Whn.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:fal_ex, "~> 0.1.0"},
+      {:fal_ex, path: "vendor/fal_ex"},
       {:req, "~> 0.5"}
     ]
   end

@@ -212,6 +212,51 @@ defmodule Whn.CelerisTest do
     assert clamped =~ ~s(Tunde: "Not today, sir.")
   end
 
+  test "a variant Dialogue label is normalized to the canonical guard, not doubled" do
+    authored =
+      "Camera: medium shot.\nEnvironment: doorway.\nAction: Tunde plants his feet.\n" <>
+        ~s{Dialogue (only): Landlord: "Where is my rent, Tunde?"}
+
+    clamped = Prompts.clamp_dialogue(authored)
+
+    assert [_] = Regex.scan(~r/Dialogue \(the only spoken words in the clip\):/, clamped)
+    refute clamped =~ "Dialogue (only):"
+    assert clamped =~ ~s{Landlord: "Where is my rent, Tunde?"}
+  end
+
+  test "stripping dialogue from a finalized prompt keeps the escalation line isolated" do
+    # Production defect (2026-09-04 smoke): segments after the first strip
+    # dialogue from the FINALIZED prompt; the removal residue must never
+    # merge the dangling speaker attribution into the Escalation line, or
+    # the video model voices the ladder text as dialogue.
+    raw =
+      put_in(
+        @valid,
+        ["next_scene", "video_prompt"],
+        "Camera: medium shot, slow push-in.\n" <>
+          "Environment: a narrow doorway at dusk.\n" <>
+          "Action: Tunde opens the door to reveal the Landlord, arms crossed.\n" <>
+          ~s{Dialogue (only): Landlord: "Where is my rent, Tunde?"}
+      )
+
+    respond_with(Jason.encode!(raw))
+    assert {:ok, result} = Celeris.run(@ctx)
+
+    stripped = Prompts.strip_dialogue(result.next_scene.video_prompt)
+
+    # the ladder text stands alone on its own labeled line
+    assert stripped =~ ~r/^Escalation: /m
+    refute stripped =~ ~r/Landlord:.*Escalation:/s
+    # the dialogue line is gone entirely, whatever the label wording
+    refute stripped =~ "Dialogue"
+    refute stripped =~ "Landlord:"
+    # the other sections keep their own lines
+    assert stripped =~ ~r/^Camera: /m
+    assert stripped =~ ~r/^Environment: /m
+    assert stripped =~ ~r/^Action: /m
+    assert stripped =~ ~r/^Style: /m
+  end
+
   test "SCRIPT_ENGINE=gemini routes through the fal vision route with the same prompts" do
     defmodule VisionStub do
       @behaviour Whn.Fal
